@@ -20,7 +20,7 @@ sealed class Selection {
 }
 
 enum class Screen { MENU, ISLANDS, SHOP, GAME }
-enum class Overlay { LAB, RESEARCH, EXPEDITIONS, PAUSE }
+enum class Overlay { DINOS, LAB, RESEARCH, EXPEDITIONS, PAUSE }
 
 /** Artículo de la tienda de Ámbar (desbloqueo permanente). */
 data class ShopItem(val id: String, val name: String, val desc: String, val cost: Int, val group: String)

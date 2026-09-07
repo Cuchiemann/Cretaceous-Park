@@ -37,6 +37,7 @@ fun GameScreen(vm: GameViewModel) {
             vm.tool !is Tool.None -> vm.useTool(Tool.None)
             vm.selection != null -> vm.select(null)
             vm.category != null -> vm.category = null
+            vm.buildOpen -> vm.buildOpen = false
             else -> vm.overlay = Overlay.PAUSE
         }
     }
@@ -58,6 +59,7 @@ fun GameScreen(vm: GameViewModel) {
         }
 
         when (vm.overlay) {
+            Overlay.DINOS -> DinosScreen(vm, w)
             Overlay.LAB -> LabScreen(vm, w)
             Overlay.RESEARCH -> ResearchScreen(vm, w)
             Overlay.EXPEDITIONS -> ExpeditionScreen(vm, w)
@@ -88,9 +90,6 @@ private fun TopBar(vm: GameViewModel, w: World, modifier: Modifier) {
         if (!w.def.sandbox) StarsChip(s.stars) { vm.overlay = Overlay.PAUSE }
         if (s.eventText.isNotEmpty()) Chip(s.eventText, color = Pal.alert, textColor = Color.White)
         Spacer(Modifier.weight(1f))
-        Chip("🧬 ADN", color = if (vm.overlay == Overlay.LAB) Pal.grass else Pal.panel2, onClick = { vm.overlay = Overlay.LAB })
-        Chip("🔬 Investigar", color = Pal.panel2, onClick = { vm.overlay = Overlay.RESEARCH })
-        Chip("🌍 Expediciones", color = Pal.panel2, onClick = { vm.overlay = Overlay.EXPEDITIONS })
         Spacer(Modifier.width(6.dp))
         SpeedButton("⏸", 0, s.speed) { w.setSpeed(0) }
         SpeedButton("1×", 1, s.speed) { w.setSpeed(1) }
@@ -160,27 +159,43 @@ private fun CameraControls(vm: GameViewModel, modifier: Modifier) {
     }
 }
 
-// ------------------------------------------------------------------ barra de construcción
+// ------------------------------------------------------------------ barra inferior
 @Composable
 private fun BuildBar(vm: GameViewModel, w: World) {
-    vm.frame
     Column(Modifier.fillMaxWidth().background(Pal.panel)) {
-        val cat = vm.category
-        if (cat != null) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ToolItems(vm, w, cat)
+        if (vm.buildOpen) {
+            val cat = vm.category
+            if (cat != null) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ToolItems(vm, w, cat)
+                }
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                for (c in Category.values()) {
+                    val active = vm.category == c
+                    Chip(c.label, color = if (active) Pal.sand else Pal.panel2, textColor = if (active) Color(0xFF0F1A13) else Pal.ink,
+                        onClick = { if (active) { vm.category = null; vm.useTool(Tool.None) } else { vm.category = c; vm.useTool(Tool.None) } })
+                }
+                Chip("🔨 Demoler", color = if (vm.tool is Tool.Demolish) Pal.alert else Pal.panel2, textColor = if (vm.tool is Tool.Demolish) Color.White else Pal.ink, onClick = { vm.category = null; vm.useTool(Tool.Demolish) })
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            for (c in Category.values()) {
-                val active = vm.category == c
-                Chip(c.label, color = if (active) Pal.sand else Pal.panel2, textColor = if (active) Color(0xFF0F1A13) else Pal.ink,
-                    onClick = { if (active) { vm.category = null; vm.useTool(Tool.None) } else { vm.category = c; vm.useTool(Tool.None) } })
-            }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            MainTab("🏗 Construir", vm.buildOpen) { vm.buildOpen = !vm.buildOpen; if (!vm.buildOpen) { vm.category = null; vm.useTool(Tool.None) } }
+            MainTab("🦕 Dinosaurios", vm.overlay == Overlay.DINOS, badge = w.s.dinos.size.takeIf { it > 0 }?.toString()) { vm.overlay = Overlay.DINOS }
+            MainTab("🧬 ADN", vm.overlay == Overlay.LAB) { vm.overlay = Overlay.LAB }
+            MainTab("🔬 Investigar", vm.overlay == Overlay.RESEARCH, badge = w.s.researchActive?.let { "…" }) { vm.overlay = Overlay.RESEARCH }
+            MainTab("🌍 Expediciones", vm.overlay == Overlay.EXPEDITIONS, badge = w.s.expeditions.size.takeIf { it > 0 }?.toString()) { vm.overlay = Overlay.EXPEDITIONS }
             Spacer(Modifier.weight(1f))
             if (vm.tool !is Tool.None) Chip("✕ Herramienta", color = Pal.alert, textColor = Color.White, onClick = { vm.useTool(Tool.None) })
-            Chip("🔨 Demoler", color = if (vm.tool is Tool.Demolish) Pal.alert else Pal.panel2, textColor = if (vm.tool is Tool.Demolish) Color.White else Pal.ink, onClick = { vm.useTool(Tool.Demolish) })
         }
+    }
+}
+
+@Composable
+private fun MainTab(label: String, active: Boolean, badge: String? = null, onClick: () -> Unit) {
+    Row(Modifier.clip(RoundedCornerShape(4.dp)).background(if (active) Pal.grass else Pal.panel2).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = if (active) Color(0xFF0F1A13) else Pal.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        if (badge != null) { Spacer(Modifier.width(6.dp)); Text(badge, color = if (active) Color(0xFF0F1A13) else Pal.sand, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -368,7 +383,7 @@ private fun EdgePanel(vm: GameViewModel, w: World, e: EdgeRef) {
 fun PauseScreen(vm: GameViewModel, w: World) {
     vm.frame
     val s = w.s
-    OverlayFrame("Parque · ${w.def.name}", onClose = { vm.overlay = null }) {
+    OverlayFrame("Parque · ${w.def.name}", onClose = { vm.overlay = null }, w = w, vm = vm) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Label("VALORACIÓN"); Text(stars(s.stars), color = Pal.amber, fontSize = 28.sp)
@@ -392,7 +407,7 @@ fun PauseScreen(vm: GameViewModel, w: World) {
                 }
                 Spacer(Modifier.height(10.dp))
                 Label("CÓMO EMPEZAR")
-                Body("1. Recintos → valla ligera: arrastra un rectángulo sobre la hierba.\n2. Dentro: comedero y bebedero. 3. Caminos desde la entrada y un mirador pegado a la valla.\n4. Centros: Generador, Expediciones, Laboratorio. 5. 🌍 envía una expedición, 🧬 incuba con ADN ≥ 50 %.")
+                Body("1. Construir → Recintos → valla ligera: arrastra un rectángulo sobre la hierba.\n2. Dentro: comedero y bebedero. 3. Caminos desde la entrada y un mirador pegado a la valla.\n4. Centros: Generador, Expediciones, Laboratorio. 5. Expediciones: envía un equipo. 6. Dinosaurios: incuba con ADN ≥ 50 %.")
             }
         }
     }
@@ -412,20 +427,30 @@ fun GameOverScreen(vm: GameViewModel, w: World) {
 }
 
 @Composable
-fun OverlayFrame(title: String, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable(onClick = onClose)) {
+fun OverlayFrame(title: String, onClose: () -> Unit, w: World? = null, vm: GameViewModel? = null, content: @Composable ColumnScope.() -> Unit) {
+    vm?.frame   // observar el reloj de la simulación para que la cabecera se actualice
+    // Panel lateral: el mundo y el HUD siguen visibles y tocables a la izquierda; el parque no se detiene.
+    Box(Modifier.fillMaxSize()) {
         Column(
-            Modifier.align(Alignment.Center).fillMaxWidth(0.92f).fillMaxHeight(0.92f).clip(RoundedCornerShape(8.dp)).background(Pal.bg)
-                .clickable(enabled = false) {}.padding(16.dp)
+            Modifier.align(Alignment.TopEnd).padding(top = 50.dp, bottom = 62.dp, end = 6.dp).fillMaxWidth(0.64f).fillMaxHeight()
+                .clip(RoundedCornerShape(8.dp)).background(Pal.bg.copy(alpha = 0.97f))
+                .clickable(enabled = false) {}.padding(14.dp)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, color = Pal.ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                Label("Juego en pausa")
-                Spacer(Modifier.width(12.dp))
+                if (w != null) {
+                    val t = w.s.time.toInt()
+                    val running = w.s.speed > 0 && !w.s.gameOver
+                    Text(
+                        (if (running) "▶ " else "⏸ ") + String.format("%02d:%02d", t / 60, t % 60) + " · " + money(w.s.money),
+                        color = if (running) Pal.ok else Pal.alert, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
                 Chip("✕ Cerrar", color = Pal.panel2, onClick = onClose)
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), content = content)
         }
     }

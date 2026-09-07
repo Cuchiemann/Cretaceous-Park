@@ -20,6 +20,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     var overlay by mutableStateOf<Overlay?>(null)
     var tool by mutableStateOf<Tool>(Tool.None)
     var category by mutableStateOf<Category?>(null)
+    var buildOpen by mutableStateOf(false)
     var selection by mutableStateOf<Selection?>(null)
     var ghost by mutableStateOf<Pair<Int, Int>?>(null)
     var ghostOk by mutableStateOf(false)
@@ -139,7 +140,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val w = world ?: return
         if (w.s.tutorialActive && w.s.tutorialStep != lastTutorialStep) {
             lastTutorialStep = w.s.tutorialStep
-            w.currentTutorialStep()?.category?.let { if (overlay == null) { category = it } }
+            w.currentTutorialStep()?.category?.let { if (overlay == null) { category = it; buildOpen = true } }
         }
         if (w.tutorialJustCompleted >= 0) { w.tutorialJustCompleted = -1; tutorialFlash = System.currentTimeMillis() }
         if (w.amberFlash > 0) { w.amberFlash = 0; bankMeta(w) }

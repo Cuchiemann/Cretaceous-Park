@@ -57,7 +57,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
         val world = vm.world ?: return
         if (camMap != world.s.size) { camMap = world.s.size; cam.mapSize = world.s.size; centerOnEntrance() }
         animTime += dt
-        val speed = if (vm.overlay != null || world.s.gameOver) 0 else world.s.speed
+        val speed = if (world.s.gameOver) 0 else world.s.speed   // los menús no detienen el parque
         acc += dt * speed
         var ticks = 0
         val ts0 = System.nanoTime()

@@ -26,22 +26,18 @@ import com.momentadesunt.cretaceouspark.core.*
 fun LabScreen(vm: GameViewModel, w: World) {
     vm.frame
     val s = w.s
-    var chosen by remember { mutableStateOf<String?>(null) }
-    var region by remember { mutableStateOf(-1) }
-    var genes by remember { mutableStateOf(0) }   // bit 1 piel, 2 resistencia, 4 dócil, 8 vistoso
-    val geneCount = Integer.bitCount(genes)
-    OverlayFrame("Laboratorio de ADN e Incubadora", onClose = { vm.overlay = null }) {
-        if (!w.hasBuilding("lab")) Body("Construye un Laboratorio (Centros) para clonar. Mientras, puedes acumular ADN con expediciones.", Pal.alert)
+    val st = rememberIncubState()
+    OverlayFrame("ADN y Laboratorio", onClose = { vm.overlay = null }, w = w, vm = vm) {
+        if (!w.hasBuilding("lab")) Body("Construye un Laboratorio (Construir → Centros) para clonar. Mientras, puedes acumular ADN con expediciones.", Pal.alert)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // lista de especies
             Column(Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Label("ESPECIES · ADN acumulado")
                 for (sp in GameData.species) {
                     val dna = s.dna[sp.id] ?: 0
                     if (dna == 0 && !s.cloned.contains(sp.id)) continue
-                    val active = chosen == sp.id
+                    val active = st.chosen == sp.id
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (active) Pal.grassDark else Pal.panel2).clickable { chosen = sp.id }.padding(8.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (active) Pal.grassDark else Pal.panel2).clickable { st.chosen = sp.id }.padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(Modifier.size(12.dp).background(Color(sp.colorBody)))
@@ -55,50 +51,12 @@ fun LabScreen(vm: GameViewModel, w: World) {
                         Text(if (dna >= 50) "${w.viability(sp.id, 0)} %" else "—", color = if (dna >= 50) Pal.ok else Pal.ink3, fontSize = 13.sp)
                     }
                 }
-                if (s.dna.isEmpty()) Body("Aún no hay ADN. Envía una expedición desde 🌍.", Pal.ink3)
+                if (s.dna.isEmpty()) Body("Aún no hay ADN. Envía una expedición desde la pestaña Expediciones.", Pal.ink3)
                 Spacer(Modifier.height(8.dp))
-                Label("INCUBANDO (${s.incubations.size}/${w.maxIncubations()})")
-                for (inc in s.incubations) Body("${GameData.species(inc.species).name} → Recinto ${inc.region} · ${inc.remaining.toInt()} s")
-            }
-            // panel de incubación
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val sp = chosen?.let { GameData.species(it) }
-                if (sp == null) { Label("INCUBAR"); Body("Elige una especie con ADN ≥ 50 % y un recinto de destino.") }
-                else {
-                    Title(sp.name)
-                    Body("Necesita ${sp.spaceMin} tiles por animal, grupo de ${sp.groupMin} a ${sp.groupMax}, ${Fence.names[sp.fenceMin]} o mejor." + (if (sp.requiresWaterTiles > 0) " Requiere ${sp.requiresWaterTiles} tiles de agua." else ""))
-                    Body("Viabilidad ${w.viability(sp.id, geneCount)} % · coste ${sp.cost} $ · ${sp.size.incubationSeconds.toInt()} s")
-                    if (s.researchDone.contains("G3") || s.researchDone.contains("G5")) {
-                        Label("GENES (cada uno resta 5 % de viabilidad)")
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (s.researchDone.contains("G3")) GeneChip("Piel alternativa", "+1 atractivo", genes and 1 != 0) { genes = genes xor 1 }
-                            if (s.researchDone.contains("G5")) {
-                                GeneChip("Resistencia", "menos enfermedad y estrés por hambre", genes and 2 != 0) { genes = genes xor 2 }
-                                GeneChip("Dócil", "ataque ×0,5", genes and 4 != 0) { genes = if (genes and 4 != 0) genes and 4.inv() else (genes or 4) and 8.inv() }
-                                GeneChip("Vistoso", "+2 atractivo, estrés ×1,3", genes and 8 != 0) { genes = if (genes and 8 != 0) genes and 8.inv() else (genes or 8) and 4.inv() }
-                            }
-                        }
-                    }
-                    Label("RECINTO DE DESTINO")
-                    val encl = w.enclosures()
-                    if (encl.isEmpty()) Body("No hay recintos cerrados. Valla un rectángulo con Recintos → valla.", Pal.alert)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (r in encl) {
-                            val dinos = w.regionDinos(r.id)
-                            BlockButton(r.name, { region = r.id; vm.highlightRegion = r.id }, small = true, color = if (region == r.id) Pal.grass else Pal.panel2, textColor = if (region == r.id) Color(0xFF0F1A13) else Pal.ink,
-                                sub = "${r.tiles} tiles · ${dinos.size} dinos · ${Fence.names[r.weakestLevel.coerceIn(0, 4)].removePrefix("Valla ")}")
-                        }
-                    }
-                    if (region > 0) {
-                        for (wmsg in w.incubationWarnings(sp.id, region)) Body("⚠ $wmsg", Pal.alert)
-                        val can = w.canIncubate(sp.id, region)
-                        BlockButton("Incubar ${sp.name}", { vm.act(w.startIncubation(sp.id, region, genes)) }, enabled = can.ok, sub = if (can.ok) "${sp.cost} $" else can.reason)
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
                 Label("ÚLTIMOS FÓSILES")
                 for (f in s.fossilLog.take(6)) Body("${GameData.species(f.species).name} · calidad ${f.quality} · +${f.dna} % ADN" + (if (f.sold > 0) " · vendido ${f.sold} $" else ""))
             }
+            Column(Modifier.weight(1f)) { IncubationPanel(vm, w, st, showSpeciesChooser = false) }
         }
     }
 }
@@ -108,7 +66,7 @@ fun LabScreen(vm: GameViewModel, w: World) {
 fun ResearchScreen(vm: GameViewModel, w: World) {
     vm.frame
     val s = w.s
-    OverlayFrame("Investigación", onClose = { vm.overlay = null }) {
+    OverlayFrame("Investigación", onClose = { vm.overlay = null }, w = w, vm = vm) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Chip("PI: ${s.researchPoints.toInt()}", color = Pal.panel2)
             Chip("+${w.researchRate().toInt()} PI/min", color = Pal.panel2)
@@ -146,7 +104,7 @@ fun ResearchScreen(vm: GameViewModel, w: World) {
 fun ExpeditionScreen(vm: GameViewModel, w: World) {
     vm.frame
     val s = w.s
-    OverlayFrame("Expediciones", onClose = { vm.overlay = null }) {
+    OverlayFrame("Expediciones", onClose = { vm.overlay = null }, w = w, vm = vm) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Chip("Equipos: ${s.expeditions.size}/${w.maxTeams()}", color = Pal.panel2)
             if (!w.hasBuilding("expedition_hq")) Chip("Construye un Centro de Expediciones", color = Pal.alert, textColor = Color.White)
@@ -185,12 +143,4 @@ private fun unlockText(u: String): String = when {
     u.startsWith("research:") -> "investigación " + (GameData.researchById[u.removePrefix("research:")]?.name ?: "")
     u.startsWith("island:") -> "se abre al jugar en " + (GameData.islandById[u.removePrefix("island:")]?.name ?: "")
     else -> ""
-}
-
-@Composable
-private fun GeneChip(name: String, desc: String, active: Boolean, onClick: () -> Unit) {
-    Column(Modifier.clip(RoundedCornerShape(4.dp)).background(if (active) Pal.grass else Pal.panel2).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp)) {
-        Text(name, color = if (active) Color(0xFF0F1A13) else Pal.ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        Text(desc, color = if (active) Color(0xFF0F1A13) else Pal.ink3, fontSize = 10.sp)
-    }
 }
