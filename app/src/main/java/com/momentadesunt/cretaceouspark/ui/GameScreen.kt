@@ -379,6 +379,7 @@ private fun EdgePanel(vm: GameViewModel, w: World, e: EdgeRef) {
 }
 
 // ------------------------------------------------------------------ pausa y fin
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PauseScreen(vm: GameViewModel, w: World) {
     vm.frame
@@ -398,7 +399,7 @@ fun PauseScreen(vm: GameViewModel, w: World) {
                 Body("${s.visitors.size} visitantes · ${s.buildings.size - 1} edificios · ${w.allEdges().size} tramos de valla")
                 Body("Ámbar ganado en esta isla: ${s.amberEarned} · total ${vm.amber}", Pal.amber)
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     BlockButton("Seguir jugando", { vm.overlay = null })
                     BlockButton("Guardar y salir", { vm.exitToMenu() }, color = Pal.panel2, textColor = Pal.ink)
                     if (w.def.sandbox) BlockButton("Ver especies", { val c = w.spawnShowcase(); vm.message("$c dinosaurios de ${GameData.species.size} especies desplegados"); vm.overlay = null; w.s.buildings.firstOrNull { it.type == "entrance" }?.let { e -> vm.focusOn(e.x, e.y - 30) } }, color = Pal.sand, small = true, sub = "un recinto por especie")

@@ -51,7 +51,7 @@ object GameData {
         BuildingDef("viewpoint", "Mirador", Category.PATHS, 1, 1, 600, 5f, needsPath = true, attachToFence = true,
             viewRange = 6, visitorCapacity = 6, color = c("D8CBA4"), height = 1.8f, desc = "Los visitantes ven dinos a 6 tiles."),
         BuildingDef("gallery", "Galería", Category.PATHS, 2, 1, 1500, 10f, research = "E1", needsPath = true, attachToFence = true,
-            viewRange = 8, visitorCapacity = 12, isShelter = true, shelterCapacity = 12, color = c("E3D9B8"), height = 1.4f, desc = "Vista a 8 tiles y techo."),
+            viewRange = 8, visitorCapacity = 12, isShelter = true, shelterCapacity = 12, color = c("E3D9B8"), height = 2.6f, desc = "Plataforma elevada sobre la valla, vista a 8 tiles y techo."),
         // Servicios
         BuildingDef("shop_food", "Tienda de comida", Category.SERVICES, 2, 2, 3000, 40f, needsPath = true, needsPower = true,
             serveSeconds = 2f, price = 15, restoreNeed = Need.HUNGER, restoreAmount = 60, color = c("E0762E"), height = 1.4f, desc = "15 $ por comida."),
@@ -128,4 +128,6 @@ object GameData {
     const val INJURY_COST = 2000
     const val DEATH_COST = 10000
     const val AUTOSAVE_SECONDS = 30f
+    /** Multiplicador global de ingresos (entradas, tiendas, hoteles, ventas). */
+    const val INCOME_MULT = 2.0f
 }

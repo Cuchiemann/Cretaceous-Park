@@ -39,7 +39,7 @@ class World(var s: GameState) {
     fun say(msg: String) { toast = msg; toastTime = 3.5f }
 
     // ------------------------------------------------------------------ economía
-    fun earn(amount: Float) { s.money += amount; s.ledgerIncome += amount; s.totalIncome += amount }
+    fun earn(base: Float) { val amount = base * GameData.INCOME_MULT; s.money += amount; s.ledgerIncome += amount; s.totalIncome += amount }
     fun spendOps(amount: Float) { s.money -= amount; s.ledgerExpense += amount; s.totalExpense += amount }
     fun spendCapital(amount: Float) { s.money -= amount; s.totalExpense += amount }
     fun canAfford(amount: Int) = s.money >= amount || def.sandbox
@@ -821,6 +821,21 @@ class World(var s: GameState) {
             if (sp.requiresWaterTiles > 0) for (k in 0 until sp.requiresWaterTiles) s.terrain[s.idx(px + 1 + k, py + pen - 1)] = Terrain.WATER
             grid.rebuildRegions()
             repeat(sp.groupMin.coerceIn(1, 3)) { if (spawnDino(sp.id, region) != null) count++ }
+        }
+        // fila de todos los edificios junto a un camino, para revisar sus modelos
+        val pathY = entrance.y - 6
+        var bx = (entrance.x - 22).coerceAtLeast(1)
+        val defs = listOf("generator") + GameData.buildings.filter { it.id != "entrance" && it.id != "generator" && !it.insideEnclosure }.map { it.id }
+        for (x in bx until (bx + 60).coerceAtMost(n - 1)) { if (s.terrainAt(x, pathY) != Terrain.PATH) { s.terrain[s.idx(x, pathY)] = Terrain.GRASS; placePath(x, pathY) } }
+        for (id in defs) {
+            val d = GameData.building(id)
+            val by = pathY - d.h
+            if (bx + d.w >= n - 1) break
+            for (yy in by until by + d.h) for (xx in bx until bx + d.w) { s.terrain[s.idx(xx, yy)] = Terrain.GRASS; grid.buildingAt(xx, yy)?.let { if (it.type != "entrance") s.buildings.remove(it) } }
+            grid.rebuildBuildings(); grid.rebuildPower(); grid.rebuildRegions()
+            if (d.attachToFence) { fenceRect(bx, by - 2, bx + d.w - 1, by - 1, Fence.LIGHT) }
+            placeBuilding(id, bx, by)
+            bx += d.w + 1
         }
         dirty = true
         return count

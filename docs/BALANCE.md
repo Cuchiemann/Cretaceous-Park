@@ -2,7 +2,7 @@
 
 Complemento numérico del [GDD](GDD.md). Todos los valores son de **primera iteración** y están pensados para ajustarse con la simulación sin cabeza descrita en [TECH.md §8](TECH.md). Las mismas tablas viven en formato máquina en `app/src/main/assets/data/*.json`.
 
-Convenciones: `$` es la moneda del parque; los tiempos son **segundos reales a velocidad 1×**; "tile" es la celda de la rejilla.
+Convenciones: todos los ingresos (entradas, tiendas, hoteles, venta de fósiles y dinosaurios) se multiplican por **2** al cobrarse (`GameData.INCOME_MULT`), ajuste de ritmo tras las primeras pruebas; `$` es la moneda del parque; los tiempos son **segundos reales a velocidad 1×**; "tile" es la celda de la rejilla.
 
 ---
 

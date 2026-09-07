@@ -21,6 +21,8 @@ class IsoRenderer(val cam: IsoCamera) {
         // límites en espacio de vista (se rellenan en prepare)
         var vx0 = 0f; var vx1 = 0f; var vy0 = 0f; var vy1 = 0f
         var key = 0f
+        var col = 0f
+        var author = 0
     }
     private class Obj(val key: Float) { val boxes = ArrayList<Box>(6) }
 
@@ -82,40 +84,80 @@ class IsoRenderer(val cam: IsoCamera) {
     }
 
     /**
-     * Orden de pintor por caja. Primero una clave aproximada (esquina cercana + altura);
-     * después una pasada local que corrige pares mal ordenados con una prueba de separación:
-     * A va detrás de B si A termina antes de que empiece B en x, en y o en altura, y no al revés.
+     * Orden de pintor determinista por columnas de tile (en espacio de vista):
+     *  1. cada caja se parte en trozos que caen dentro de una sola columna 1×1 de vista;
+     *  2. las columnas se pintan de atrás hacia delante (suma de coordenadas de vista);
+     *  3. dentro de una columna, por altura de la base, luego por cercanía a la cámara y, por último, por orden de autoría.
+     * No depende de qué otras cajas haya cerca, así que el resultado es idéntico entre fotogramas.
      */
     private fun sortBoxes() {
         flat.clear()
-        for (o in objs) for (b in o.boxes) {
-            val vxA = cam.toViewX(b.x, b.y); val vyA = cam.toViewY(b.x, b.y)
-            val vxB = cam.toViewX(b.x + b.w, b.y + b.d); val vyB = cam.toViewY(b.x + b.w, b.y + b.d)
-            b.vx0 = min(vxA, vxB); b.vx1 = max(vxA, vxB); b.vy0 = min(vyA, vyB); b.vy1 = max(vyA, vyB)
-            b.key = b.vx1 + b.vy1 + b.z * 0.02f + o.key * 0.0001f
-            flat.add(b)
-        }
-        flat.sortBy { it.key }
-        val n = flat.size
-        val window = 14
-        repeat(3) {
-            var swapped = false
-            for (i in 0 until n - 1) {
-                val a = flat[i]
-                val end = min(n - 1, i + window)
-                for (j in i + 1..end) {
-                    val b = flat[j]
-                    // b está claramente detrás de a → debería ir antes
-                    if (behind(b, a) && !behind(a, b)) { flat[j] = a; flat[i] = b; swapped = true; break }
-                }
+        var author = 0
+        for (o in objs) for (b0 in o.boxes) {
+            author++
+            val vxA = cam.toViewX(b0.x, b0.y); val vyA = cam.toViewY(b0.x, b0.y)
+            val vxB = cam.toViewX(b0.x + b0.w, b0.y + b0.d); val vyB = cam.toViewY(b0.x + b0.w, b0.y + b0.d)
+            val vx0 = min(vxA, vxB); val vx1 = max(vxA, vxB); val vy0 = min(vyA, vyB); val vy1 = max(vyA, vyB)
+            if (b0.alpha < 255 || (vx1 - vx0 <= 1.0001f && vy1 - vy0 <= 1.0001f && floor(vx0 + 0.02f) == floor(vx1 - 0.02f) && floor(vy0 + 0.02f) == floor(vy1 - 0.02f))) {
+                setBounds(b0, vx0, vx1, vy0, vy1, author); flat.add(b0); continue
             }
-            if (!swapped) return
+            // partir en columnas de vista
+            val cx0 = floor(vx0 + 0.001f).toInt(); val cx1 = kotlin.math.ceil(vx1 - 0.001f).toInt() - 1
+            val cy0 = floor(vy0 + 0.001f).toInt(); val cy1 = kotlin.math.ceil(vy1 - 0.001f).toInt() - 1
+            for (cx in cx0..max(cx0, cx1)) for (cy in cy0..max(cy0, cy1)) {
+                val px0 = max(vx0, cx.toFloat()); val px1 = min(vx1, cx + 1f)
+                val py0 = max(vy0, cy.toFloat()); val py1 = min(vy1, cy + 1f)
+                if (px1 - px0 < 1e-4f || py1 - py0 < 1e-4f) continue
+                // volver a mundo para dibujar
+                val wxA = cam.viewToWorldX(px0, py0); val wyA = cam.viewToWorldY(px0, py0)
+                val wxB = cam.viewToWorldX(px1, py1); val wyB = cam.viewToWorldY(px1, py1)
+                val b = Box(min(wxA, wxB), min(wyA, wyB), b0.z, abs(wxB - wxA), abs(wyB - wyA), b0.h, b0.color, b0.alpha)
+                setBounds(b, px0, px1, py0, py1, author)
+                flat.add(b)
+            }
+        }
+        flat.sortWith(compareBy<Box>({ it.col }, { it.z }, { it.vx0 + it.vy0 }, { it.author }))
+        // Dentro de cada columna: una pieza que termina exactamente donde empieza otra (en x, y o altura)
+        // va detras de ella. Asi el ojo del lado oculto queda tapado por la cabeza. Grupos pequenos -> O(k^2).
+        var start = 0
+        while (start < flat.size) {
+            var end = start + 1
+            while (end < flat.size && flat[end].col == flat[start].col) end++
+            if (end - start > 1) refineGroup(start, end)
+            start = end
         }
     }
 
+    private fun refineGroup(from: Int, to: Int) {
+        val k = to - from
+        repeat(k) {
+            var moved = false
+            for (j in from + 1 until to) {
+                val b = flat[j]
+                var target = -1
+                for (i in from until j) { val a = flat[i]; if (behind(b, a) && !behind(a, b)) { target = i; break } }
+                if (target >= 0) {
+                    for (m in j downTo target + 1) flat[m] = flat[m - 1]
+                    flat[target] = b
+                    moved = true
+                }
+            }
+            if (!moved) return
+        }
+    }
+
+    /** a queda detras de b si hay separacion (o contacto) en alguno de los tres ejes. */
     private fun behind(a: Box, b: Box): Boolean {
-        val eps = 0.02f
+        val eps = 0.003f
         return a.vx1 <= b.vx0 + eps || a.vy1 <= b.vy0 + eps || a.z + a.h <= b.z + eps
+    }
+
+    private fun setBounds(b: Box, vx0: Float, vx1: Float, vy0: Float, vy1: Float, author: Int) {
+        b.vx0 = vx0; b.vx1 = vx1; b.vy0 = vy0; b.vy1 = vy1
+        // columna: el tile de vista que contiene el centro; los bordes exactos (vallas) caen en el tile de delante
+        val cx = floor((vx0 + vx1) / 2f + 1e-3f); val cy = floor((vy0 + vy1) / 2f + 1e-3f)
+        b.col = cx + cy
+        b.author = author
     }
 
     private fun visibleTileBounds(n: Int): IntArray {
@@ -310,7 +352,7 @@ class IsoRenderer(val cam: IsoCamera) {
 
     private fun addFence(e: EdgeRef, type: Int, hp: Int, flags: Int, w: World) {
         val th = 0.12f
-        val height = when (type) { Fence.LIGHT -> 0.5f; Fence.MEDIUM -> 0.65f; Fence.HEAVY -> 0.9f; else -> 0.7f }
+        val height = when (type) { Fence.LIGHT -> 0.7f; Fence.MEDIUM -> 0.95f; Fence.HEAVY -> 1.35f; else -> 1.1f }
         var col = cFence[type]
         val gate = flags and EdgeFlag.GATE != 0
         val open = flags and EdgeFlag.OPEN != 0
@@ -335,6 +377,14 @@ class IsoRenderer(val cam: IsoCamera) {
         if (selectedEdge == e) o.boxes.add(Box(if (e.h) x else x - 0.2f, if (e.h) y - 0.2f else y, height + 0.15f, if (e.h) 1f else 0.4f, if (e.h) 0.4f else 1f, 0.05f, Color.WHITE, 200))
     }
 
+    private val cWhite = 0xFFF4F1EA.toInt()
+    private val cDark = 0xFF2B2F33.toInt()
+    private val cWood = 0xFF8C5A2B.toInt()
+    private val cGlass = 0xFF9CD3E8.toInt()
+    private val cRed = 0xFFD9483B.toInt()
+    private val cYellow = 0xFFF2C14E.toInt()
+    private val cMetal = 0xFF6E7F8C.toInt()
+
     private fun addBuilding(b: Building, selected: Boolean, time: Float) {
         val def = b.def
         val x = b.x.toFloat(); val y = b.y.toFloat(); val w = b.w.toFloat(); val h = b.h.toFloat()
@@ -343,47 +393,133 @@ class IsoRenderer(val cam: IsoCamera) {
         val unpowered = def.needsPower && !b.powered
         if (unpowered) col = shade(col, 0.6f)
         val H = def.height
+        fun box(bx: Float, by: Float, bz: Float, bw: Float, bd: Float, bh: Float, c: Int, a: Int = 255) = o.boxes.add(Box(bx, by, bz, bw, bd, bh, c, a))
         when (def.id) {
             "feeder_herb", "feeder_carn" -> {
-                o.boxes.add(Box(x + 0.15f, y + 0.15f, 0f, 0.7f, 0.7f, 0.25f, shade(col, 0.8f)))
-                if (b.stock > 0) o.boxes.add(Box(x + 0.25f, y + 0.25f, 0.25f, 0.5f, 0.5f, 0.2f * b.stock / def.stock.coerceAtLeast(1), if (def.feederDiet == Diet.HERBIVORE) 0xFF7BC96F.toInt() else 0xFFD9534F.toInt()))
+                box(x + 0.15f, y + 0.15f, 0f, 0.7f, 0.7f, 0.25f, shade(col, 0.8f))
+                if (b.stock > 0) box(x + 0.25f, y + 0.25f, 0.25f, 0.5f, 0.5f, 0.2f * b.stock / def.stock.coerceAtLeast(1), if (def.feederDiet == Diet.HERBIVORE) 0xFF7BC96F.toInt() else cRed)
             }
             "water_trough" -> {
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, 0f, 0.8f, 0.8f, 0.25f, 0xFF8A7A5A.toInt()))
-                o.boxes.add(Box(x + 0.18f, y + 0.18f, 0.25f, 0.64f, 0.64f, 0.02f, col))
+                box(x + 0.1f, y + 0.1f, 0f, 0.8f, 0.8f, 0.25f, 0xFF8A7A5A.toInt())
+                box(x + 0.18f, y + 0.18f, 0.25f, 0.64f, 0.64f, 0.02f, col)
             }
-            "viewpoint" -> {
-                o.boxes.add(Box(x + 0.2f, y + 0.2f, 0f, 0.6f, 0.6f, H, col))
-                o.boxes.add(Box(x + 0.05f, y + 0.05f, H, 0.9f, 0.9f, 0.15f, shade(col, 0.85f)))
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, H + 0.15f, 0.8f, 0.8f, 0.5f, 0xFF7E6A4A.toInt(), 120))
+            "dino_shelter" -> {   // cobertizo abierto: cuatro postes y techo
+                for ((px, py) in listOf(0.1f to 0.1f, w - 0.3f to 0.1f, 0.1f to h - 0.3f, w - 0.3f to h - 0.3f)) box(x + px, y + py, 0f, 0.2f, 0.2f, H, cWood)
+                box(x, y, H, w, h, 0.18f, col)
+                box(x + 0.2f, y + 0.2f, H + 0.18f, w - 0.4f, h - 0.4f, 0.12f, shade(col, 0.85f))
             }
-            "gallery" -> {
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H * 0.5f, col))
-                o.boxes.add(Box(x, y, H * 0.5f, w, h, 0.12f, 0xFF7E6A4A.toInt()))
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, H * 0.5f + 0.12f, w - 0.2f, h - 0.2f, H * 0.5f, col, 110))
+            "viewpoint" -> {      // torre mirador con barandilla
+                for ((px, py) in listOf(0.15f to 0.15f, 0.7f to 0.15f, 0.15f to 0.7f, 0.7f to 0.7f)) box(x + px, y + py, 0f, 0.15f, 0.15f, H, cWood)
+                box(x + 0.05f, y + 0.05f, H, 0.9f, 0.9f, 0.12f, col)
+                box(x + 0.05f, y + 0.05f, H + 0.12f, 0.9f, 0.06f, 0.3f, shade(col, 0.8f)); box(x + 0.05f, y + 0.89f, H + 0.12f, 0.9f, 0.06f, 0.3f, shade(col, 0.8f))
+                box(x + 0.05f, y + 0.05f, H + 0.12f, 0.06f, 0.9f, 0.3f, shade(col, 0.8f)); box(x + 0.89f, y + 0.05f, H + 0.12f, 0.06f, 0.9f, 0.3f, shade(col, 0.8f))
+                box(x + 0.2f, y + 0.2f, H + 0.42f, 0.6f, 0.6f, 0.1f, cWood, 200)
             }
-            "generator" -> {
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H * 0.6f, col))
-                o.boxes.add(Box(x + 0.5f, y + 0.5f, H * 0.6f, 0.5f, 0.5f, H * 0.4f, 0xFF6E7F8C.toInt()))
-                o.boxes.add(Box(x + 1.1f, y + 0.4f, H * 0.6f, 0.3f, 0.3f, H * 0.3f, 0xFF6E7F8C.toInt()))
+            "gallery" -> {        // galería elevada: plataforma por encima de la valla pesada, con techo y escalera
+                val deck = 1.5f
+                for (i in 0 until w.toInt()) { box(x + i + 0.08f, y + 0.08f, 0f, 0.16f, 0.16f, deck, cWood); box(x + i + 0.08f, y + h - 0.24f, 0f, 0.16f, 0.16f, deck, cWood); box(x + i + 0.84f, y + 0.08f, 0f, 0.16f, 0.16f, deck, cWood); box(x + i + 0.84f, y + h - 0.24f, 0f, 0.16f, 0.16f, deck, cWood) }
+                box(x, y, deck, w, h, 0.12f, col)                                                   // plataforma
+                box(x, y, deck + 0.12f, w, 0.06f, 0.35f, shade(col, 0.8f)); box(x, y + h - 0.06f, deck + 0.12f, w, 0.06f, 0.35f, shade(col, 0.8f))   // barandillas
+                box(x, y, deck + 0.12f, 0.06f, h, 0.35f, shade(col, 0.8f)); box(x + w - 0.06f, y, deck + 0.12f, 0.06f, h, 0.35f, shade(col, 0.8f))
+                for (i in 0 until w.toInt()) { box(x + i + 0.1f, y + 0.1f, deck + 0.12f, 0.1f, 0.1f, 0.8f, cWood); box(x + i + 0.1f, y + h - 0.2f, deck + 0.12f, 0.1f, 0.1f, 0.8f, cWood) }
+                box(x - 0.05f, y - 0.05f, deck + 0.92f, w + 0.1f, h + 0.1f, 0.14f, cWood)         // techo
+                for (k in 0 until 4) box(x + w / 2f - 0.3f, y + h + k * 0.2f, k * (deck / 4f), 0.6f, 0.2f, deck / 4f, shade(col, 0.9f))   // escalera hacia el camino
+            }
+            "shop_food" -> {      // quiosco con toldo a rayas y cartel
+                box(x + 0.15f, y + 0.15f, 0f, w - 0.3f, h - 0.3f, H * 0.7f, col)
+                for (i in 0 until 4) box(x + i * 0.5f, y + h - 0.35f, H * 0.7f, 0.5f, 0.45f, 0.08f, if (i % 2 == 0) cWhite else cRed)   // toldo
+                box(x + 0.3f, y + 0.3f, H * 0.7f, w - 0.6f, h - 0.6f, 0.12f, shade(col, 0.8f))
+                box(x + 0.6f, y + 0.4f, H * 0.82f, 0.8f, 0.15f, 0.45f, cRed); box(x + 0.7f, y + 0.36f, H * 0.95f, 0.6f, 0.05f, 0.2f, cWhite)   // cartel
+            }
+            "shop_drink" -> {     // quiosco con vaso gigante y pajita
+                box(x + 0.15f, y + 0.15f, 0f, w - 0.3f, h - 0.3f, H * 0.7f, col)
+                box(x + 0.3f, y + 0.3f, H * 0.7f, w - 0.6f, h - 0.6f, 0.1f, shade(col, 0.8f))
+                box(x + 0.65f, y + 0.65f, H * 0.8f, 0.7f, 0.7f, 0.6f, cWhite); box(x + 0.6f, y + 0.6f, H * 0.8f + 0.6f, 0.8f, 0.8f, 0.08f, cRed)
+                box(x + 1.05f, y + 0.8f, H * 0.8f + 0.68f, 0.08f, 0.08f, 0.35f, cRed)
+                box(x, y + h - 0.3f, H * 0.5f, w, 0.3f, 0.06f, cWhite)   // mostrador
+            }
+            "shop_gift" -> {      // carpa escalonada de dos colores
+                box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H * 0.45f, shade(col, 0.85f))
+                box(x + 0.0f, y + 0.0f, H * 0.45f, w, h, 0.2f, col)
+                box(x + 0.35f, y + 0.35f, H * 0.45f + 0.2f, w - 0.7f, h - 0.7f, 0.3f, cWhite)
+                box(x + 0.7f, y + 0.7f, H * 0.45f + 0.5f, w - 1.4f, h - 1.4f, 0.3f, col)
+                box(x + 0.95f, y + 0.95f, H * 0.45f + 0.8f, 0.1f, 0.1f, 0.35f, cDark); box(x + 0.9f, y + 1.0f, H * 0.45f + 1.05f, 0.35f, 0.04f, 0.15f, cRed)   // banderín
+            }
+            "toilets" -> {        // caseta con puerta y letrero
+                box(x + 0.1f, y + 0.1f, 0f, 0.8f, 0.8f, H, col)
+                box(x + 0.05f, y + 0.05f, H, 0.9f, 0.9f, 0.1f, shade(col, 0.75f))
+                box(x + 0.35f, y + 0.88f, 0f, 0.3f, 0.04f, 0.6f, cDark)
+                box(x + 0.15f, y + 0.9f, 0.7f, 0.25f, 0.03f, 0.2f, 0xFF4FA3D9.toInt()); box(x + 0.6f, y + 0.9f, 0.7f, 0.25f, 0.03f, 0.2f, 0xFFC75BA0.toInt())
+            }
+            "hotel_small", "hotel_large" -> {   // bloque con ventanas y azotea
+                val floors = if (def.id == "hotel_small") 2 else 3
+                val fh = H / floors
+                box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H, col)
+                for (f in 0 until floors) for (i in 0 until w.toInt()) {
+                    box(x + i + 0.3f, y + h - 0.12f, f * fh + fh * 0.35f, 0.4f, 0.04f, fh * 0.4f, cGlass)
+                    box(x + w - 0.12f, y + i + 0.3f, f * fh + fh * 0.35f, 0.04f, 0.4f, fh * 0.4f, cGlass)
+                }
+                box(x, y, H, w, h, 0.1f, shade(col, 0.7f))
+                if (def.id == "hotel_large") { box(x + 0.4f, y + 0.4f, H + 0.1f, 1.4f, 1.0f, 0.06f, 0xFF4FA3D9.toInt()); box(x + 2.1f, y + 2.1f, H + 0.1f, 0.6f, 0.6f, 0.5f, shade(col, 0.85f)) }
+                else box(x + 2.0f, y + 0.4f, H + 0.1f, 0.6f, 0.6f, 0.4f, cMetal)
+                box(x + 0.4f, y + h - 0.06f, 0f, 0.6f, 0.06f, 0.7f, cDark)   // puerta
+            }
+            "visitor_shelter" -> {   // búnker bajo con cruz
+                box(x + 0.05f, y + 0.05f, 0f, w - 0.1f, h - 0.1f, H * 0.7f, col)
+                box(x + 0.25f, y + 0.25f, H * 0.7f, w - 0.5f, h - 0.5f, H * 0.3f, shade(col, 0.85f))
+                box(x + 0.6f, y + h - 0.04f, H * 0.4f, 0.8f, 0.04f, 0.15f, cWhite); box(x + 0.92f, y + h - 0.04f, H * 0.25f, 0.16f, 0.04f, 0.45f, cWhite)
+                box(x + 0.7f, y + 0.1f, 0f, 0.6f, 0.15f, H * 0.5f, cDark)   // entrada
+            }
+            "generator" -> {     // depósito cilíndrico, dos chimeneas y franja de aviso
+                box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, 0.25f, cMetal)
+                box(x + 0.25f, y + 0.25f, 0.25f, 1.5f, 1.5f, 0.9f, col); box(x + 0.4f, y + 0.4f, 1.15f, 1.2f, 1.2f, 0.25f, col); box(x + 0.6f, y + 0.6f, 1.4f, 0.8f, 0.8f, 0.15f, shade(col, 0.85f))
+                box(x + 0.15f, y + 1.55f, 0.25f, 0.2f, 0.2f, 1.7f, cDark); box(x + 0.5f, y + 1.55f, 0.25f, 0.2f, 0.2f, 1.4f, cDark)
+                for (i in 0 until 6) box(x + 0.1f + i * 0.3f, y + h - 0.12f, 0.1f, 0.3f, 0.02f, 0.12f, if (i % 2 == 0) cYellow else cDark)
+                if (!unpowered) { val p = 0.5f + 0.5f * sin(time * 6f); box(x + 0.2f, y + 1.6f, 1.95f + p * 0.3f, 0.12f, 0.12f, 0.12f, 0xFFB0B8BE.toInt(), 120) }
+            }
+            "expedition_hq" -> {   // hangar con techo escalonado, mástil y todoterreno
+                box(x + 0.1f, y + 0.4f, 0f, w - 0.2f, h - 0.5f, H * 0.6f, col)
+                box(x + 0.3f, y + 0.55f, H * 0.6f, w - 0.6f, h - 0.8f, H * 0.25f, shade(col, 0.9f))
+                box(x + 0.6f, y + 0.75f, H * 0.85f, w - 1.2f, h - 1.2f, H * 0.15f, shade(col, 0.8f))
+                box(x + w - 0.35f, y + 0.5f, H, 0.08f, 0.08f, 1.2f, cDark); box(x + w - 0.5f, y + 0.5f, H + 1.0f, 0.4f, 0.04f, 0.2f, cRed)
+                box(x + 0.4f, y + 0.02f, 0f, 0.9f, 0.4f, 0.3f, 0xFF5F8F4E.toInt()); box(x + 0.6f, y + 0.06f, 0.3f, 0.5f, 0.32f, 0.2f, cGlass)   // jeep
+                box(x + 1.1f, y + h - 0.12f, 0f, 0.8f, 0.12f, H * 0.5f, cDark)   // portón
+            }
+            "lab" -> {             // laboratorio blanco con cúpula y tubos de incubación
+                box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H * 0.6f, col)
+                box(x + 0.6f, y + 0.6f, H * 0.6f, 1.8f, 1.8f, 0.3f, cGlass); box(x + 0.9f, y + 0.9f, H * 0.6f + 0.3f, 1.2f, 1.2f, 0.3f, cGlass); box(x + 1.2f, y + 1.2f, H * 0.6f + 0.6f, 0.6f, 0.6f, 0.25f, cGlass)
+                for (i in 0 until 3) box(x + 0.25f + i * 0.4f, y + h - 0.45f, H * 0.6f, 0.25f, 0.25f, 0.55f, 0xFF7BE07B.toInt(), 200)
+                box(x + w - 0.4f, y + h - 0.6f, H * 0.6f, 0.3f, 0.5f, 0.35f, cMetal)
+                box(x + 1.1f, y + h - 0.12f, 0f, 0.8f, 0.12f, H * 0.4f, cGlass)   // entrada acristalada
+            }
+            "research_center" -> { // bloque acristalado con antena parabólica
+                box(x + 0.1f, y + 0.1f, 0f, w - 0.2f, h - 0.2f, H * 0.55f, col)
+                box(x + 0.5f, y + 0.5f, H * 0.55f, w - 1.0f, h - 1.0f, H * 0.35f, cGlass)
+                box(x + 0.1f, y + 0.1f, H * 0.55f, w - 0.2f, h - 0.2f, 0.08f, shade(col, 0.7f))
+                box(x + w - 0.6f, y + 0.4f, H * 0.9f, 0.1f, 0.1f, 0.5f, cDark); box(x + w - 1.0f, y + 0.1f, H * 0.9f + 0.4f, 0.9f, 0.7f, 0.1f, cWhite); box(x + w - 0.65f, y + 0.35f, H * 0.9f + 0.5f, 0.2f, 0.2f, 0.3f, cDark)
+                for (i in 0 until 3) box(x + 0.3f + i * 0.9f, y + h - 0.12f, 0.3f, 0.6f, 0.04f, H * 0.3f, cGlass)
+            }
+            "ranger_station" -> {  // torre de vigilancia de madera, cabaña y helipuerto
+                for ((px, py) in listOf(0.2f to 0.2f, 1.0f to 0.2f, 0.2f to 1.0f, 1.0f to 1.0f)) box(x + px, y + py, 0f, 0.15f, 0.15f, H * 0.9f, cWood)
+                box(x + 0.1f, y + 0.1f, H * 0.9f, 1.15f, 1.15f, 0.12f, cWood); box(x + 0.25f, y + 0.25f, H * 0.9f + 0.12f, 0.85f, 0.85f, 0.5f, col); box(x + 0.05f, y + 0.05f, H * 0.9f + 0.62f, 1.25f, 1.25f, 0.12f, shade(col, 0.7f))
+                box(x + 1.5f, y + 0.2f, 0f, 1.3f, 1.1f, 0.7f, col); box(x + 1.4f, y + 0.1f, 0.7f, 1.5f, 1.3f, 0.12f, shade(col, 0.7f))   // cabaña
+                box(x + 1.3f, y + 1.5f, 0f, 1.5f, 1.4f, 0.06f, cDark); box(x + 1.5f, y + 1.7f, 0.06f, 1.1f, 1.0f, 0.02f, cWhite); box(x + 1.7f, y + 1.9f, 0.08f, 0.7f, 0.6f, 0.02f, cDark)   // helipuerto
             }
             "entrance" -> {
-                o.boxes.add(Box(x, y, 0f, w, h, 0.2f, col))
-                o.boxes.add(Box(x + 0.1f, y + 0.1f, 0.2f, 0.4f, 0.4f, H, shade(col, 0.85f)))
-                o.boxes.add(Box(x + w - 0.5f, y + 0.1f, 0.2f, 0.4f, 0.4f, H, shade(col, 0.85f)))
-                o.boxes.add(Box(x, y, H + 0.2f, w, 0.6f, 0.25f, 0xFF8C5A2B.toInt()))
-                o.boxes.add(Box(x + 0.6f, y + 0.9f, 0.2f, w - 1.2f, 1f, 0.5f, 0xFFDDE8EE.toInt()))
+                box(x, y, 0f, w, h, 0.2f, col)
+                box(x + 0.1f, y + 0.1f, 0.2f, 0.4f, 0.4f, H, shade(col, 0.85f))
+                box(x + w - 0.5f, y + 0.1f, 0.2f, 0.4f, 0.4f, H, shade(col, 0.85f))
+                box(x, y, H + 0.2f, w, 0.6f, 0.25f, cWood)
+                box(x + 0.6f, y + 0.9f, 0.2f, w - 1.2f, 1f, 0.5f, 0xFFDDE8EE.toInt())
             }
             else -> {
-                o.boxes.add(Box(x + 0.08f, y + 0.08f, 0f, w - 0.16f, h - 0.16f, H, col))
-                o.boxes.add(Box(x + 0.25f, y + 0.25f, H, w - 0.5f, h - 0.5f, 0.2f, shade(col, 0.8f)))
-                if (def.category == Category.CENTERS) o.boxes.add(Box(x + w / 2f - 0.2f, y + h / 2f - 0.2f, H + 0.2f, 0.4f, 0.4f, 0.4f, shade(col, 0.7f)))
-                if (def.beds > 0) for (i in 0 until w.toInt()) o.boxes.add(Box(x + i + 0.3f, y + 0.02f, H * 0.4f, 0.4f, 0.04f, 0.4f, 0xFF4FA3D9.toInt()))
+                box(x + 0.08f, y + 0.08f, 0f, w - 0.16f, h - 0.16f, H, col)
+                box(x + 0.25f, y + 0.25f, H, w - 0.5f, h - 0.5f, 0.2f, shade(col, 0.8f))
             }
         }
-        if (unpowered) o.boxes.add(Box(x + w / 2f - 0.15f, y + h / 2f - 0.15f, H + 0.7f + 0.1f * sin(time * 3f), 0.3f, 0.3f, 0.3f, 0xFFF2C14E.toInt()))
-        if (def.feederDiet != null && b.stock <= 0) o.boxes.add(Box(x + 0.35f, y + 0.35f, 0.9f + 0.1f * sin(time * 3f), 0.3f, 0.3f, 0.3f, 0xFFD9483B.toInt()))
-        if (selected) o.boxes.add(Box(x - 0.1f, y - 0.1f, 0.02f, w + 0.2f, h + 0.2f, 0f, Color.WHITE, 120))
+        if (unpowered) box(x + w / 2f - 0.15f, y + h / 2f - 0.15f, H + 0.7f + 0.1f * sin(time * 3f), 0.3f, 0.3f, 0.3f, cYellow)
+        if (def.feederDiet != null && b.stock <= 0) box(x + 0.35f, y + 0.35f, 0.9f + 0.1f * sin(time * 3f), 0.3f, 0.3f, 0.3f, cRed)
+        if (selected) box(x - 0.1f, y - 0.1f, 0.02f, w + 0.2f, h + 0.2f, 0f, Color.WHITE, 120)
     }
 
     private fun addDino(d: Dino, time: Float) {
