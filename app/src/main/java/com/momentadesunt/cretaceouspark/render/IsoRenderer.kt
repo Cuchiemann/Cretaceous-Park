@@ -17,10 +17,15 @@ class IsoRenderer(val cam: IsoCamera) {
     private val linePaint = Paint().apply { style = Paint.Style.STROKE; isAntiAlias = true; strokeWidth = 3f }
     private val path = Path()
 
-    private class Box(val x: Float, val y: Float, val z: Float, val w: Float, val d: Float, val h: Float, val color: Int, val alpha: Int = 255)
+    private class Box(val x: Float, val y: Float, val z: Float, val w: Float, val d: Float, val h: Float, val color: Int, val alpha: Int = 255) {
+        // límites en espacio de vista (se rellenan en prepare)
+        var vx0 = 0f; var vx1 = 0f; var vy0 = 0f; var vy1 = 0f
+        var key = 0f
+    }
     private class Obj(val key: Float) { val boxes = ArrayList<Box>(6) }
 
     private val objs = ArrayList<Obj>(1024)
+    private val flat = ArrayList<Box>(4096)
     private val groundPaths = HashMap<Int, Path>()
 
     // colores
@@ -69,11 +74,48 @@ class IsoRenderer(val cam: IsoCamera) {
         c.drawColor(cSea)
         drawGround(c, s, w)
         collectObjects(w, time)
-        objs.sortBy { it.key }
         lastObjCount = objs.size
-        for (o in objs) for (b in o.boxes) drawBox(c, b)
+        sortBoxes()
+        for (b in flat) drawBox(c, b)
         drawOverlays(c, w)
         if (w.stormActive) drawStorm(c, time)
+    }
+
+    /**
+     * Orden de pintor por caja. Primero una clave aproximada (esquina cercana + altura);
+     * después una pasada local que corrige pares mal ordenados con una prueba de separación:
+     * A va detrás de B si A termina antes de que empiece B en x, en y o en altura, y no al revés.
+     */
+    private fun sortBoxes() {
+        flat.clear()
+        for (o in objs) for (b in o.boxes) {
+            val vxA = cam.toViewX(b.x, b.y); val vyA = cam.toViewY(b.x, b.y)
+            val vxB = cam.toViewX(b.x + b.w, b.y + b.d); val vyB = cam.toViewY(b.x + b.w, b.y + b.d)
+            b.vx0 = min(vxA, vxB); b.vx1 = max(vxA, vxB); b.vy0 = min(vyA, vyB); b.vy1 = max(vyA, vyB)
+            b.key = b.vx1 + b.vy1 + b.z * 0.02f + o.key * 0.0001f
+            flat.add(b)
+        }
+        flat.sortBy { it.key }
+        val n = flat.size
+        val window = 14
+        repeat(3) {
+            var swapped = false
+            for (i in 0 until n - 1) {
+                val a = flat[i]
+                val end = min(n - 1, i + window)
+                for (j in i + 1..end) {
+                    val b = flat[j]
+                    // b está claramente detrás de a → debería ir antes
+                    if (behind(b, a) && !behind(a, b)) { flat[j] = a; flat[i] = b; swapped = true; break }
+                }
+            }
+            if (!swapped) return
+        }
+    }
+
+    private fun behind(a: Box, b: Box): Boolean {
+        val eps = 0.02f
+        return a.vx1 <= b.vx0 + eps || a.vy1 <= b.vy0 + eps || a.z + a.h <= b.z + eps
     }
 
     private fun visibleTileBounds(n: Int): IntArray {
@@ -181,9 +223,7 @@ class IsoRenderer(val cam: IsoCamera) {
 
     // ------------------------------------------------------------------ cajas
     private fun drawBox(c: Canvas, b: Box) {
-        val vxA = cam.toViewX(b.x, b.y); val vyA = cam.toViewY(b.x, b.y)
-        val vxB = cam.toViewX(b.x + b.w, b.y + b.d); val vyB = cam.toViewY(b.x + b.w, b.y + b.d)
-        val vx0 = min(vxA, vxB); val vx1 = max(vxA, vxB); val vy0 = min(vyA, vyB); val vy1 = max(vyA, vyB)
+        val vx0 = b.vx0; val vx1 = b.vx1; val vy0 = b.vy0; val vy1 = b.vy1
         val zt = b.z + b.h
         paint.alpha = 255
         // top
@@ -348,53 +388,12 @@ class IsoRenderer(val cam: IsoCamera) {
 
     private fun addDino(d: Dino, time: Float) {
         val def = d.def
-        val body = if (d.skin == 1) def.colorDetail else def.colorBody
-        val detail = if (d.skin == 1) def.colorBody else def.colorDetail
-        val scale = when (def.size) { Size.S -> 0.55f; Size.M -> 1.0f; Size.L -> 1.6f }
-        val moving = abs(d.tx - d.x) + abs(d.ty - d.y) > 0.1f && d.sleep <= 0f
-        val hop = if (moving) abs(sin(d.hop)) else 0f
-        val squash = if (moving) 1f - 0.12f * (1f - hop) else 1f
-        val lift = hop * 0.12f * scale
-        // orientación: facing 0 norte(-y) 1 este(+x) 2 sur(+y) 3 oeste(-x)
-        val alongX = d.facing == 1 || d.facing == 3
-        val len = 1.1f * scale; val wid = 0.5f * scale
-        val bw = if (alongX) len else wid; val bd = if (alongX) wid else len
-        val cx = d.x; val cy = d.y
-        val o = obj(cx - bw / 2f, cy - bd / 2f, bw, bd, 0.3f)
-        val legH = 0.3f * scale
-        val bodyH = 0.45f * scale * squash
-        val z0 = if (d.sleep > 0f) 0f else legH
-        if (d.sleep <= 0f) {
-            // patas
-            val lx = if (alongX) 0.35f * scale else 0.12f * scale
-            val ly = if (alongX) 0.12f * scale else 0.35f * scale
-            val ls = 0.16f * scale
-            o.boxes.add(Box(cx - lx - ls / 2f, cy - ly - ls / 2f, 0f, ls, ls, legH + lift, cLegs))
-            o.boxes.add(Box(cx + lx - ls / 2f, cy + ly - ls / 2f, 0f, ls, ls, legH + lift, cLegs))
-            if (def.diet == Diet.HERBIVORE) {
-                o.boxes.add(Box(cx - lx - ls / 2f, cy + ly - ls / 2f, 0f, ls, ls, legH + lift, cLegs))
-                o.boxes.add(Box(cx + lx - ls / 2f, cy - ly - ls / 2f, 0f, ls, ls, legH + lift, cLegs))
-            }
-        }
-        // cuerpo
-        o.boxes.add(Box(cx - bw / 2f, cy - bd / 2f, z0 + lift, bw, bd, bodyH, body))
-        // detalle sobre el lomo
-        o.boxes.add(Box(cx - bw / 2f + 0.15f * scale, cy - bd / 2f + 0.15f * scale, z0 + lift + bodyH, bw - 0.3f * scale, bd - 0.3f * scale, 0.12f * scale, detail))
-        // cabeza y cola según orientación
-        val dirX = when (d.facing) { 1 -> 1f; 3 -> -1f; else -> 0f }
-        val dirY = when (d.facing) { 2 -> 1f; 0 -> -1f; else -> 0f }
-        val headS = 0.38f * scale
-        val neck = if (def.diet == Diet.HERBIVORE && def.size == Size.L) 0.9f * scale else 0.15f * scale
-        val hx = cx + dirX * (len / 2f + headS / 2f); val hy = cy + dirY * (len / 2f + headS / 2f)
-        if (neck > 0.3f) o.boxes.add(Box(cx + dirX * (len / 2f) - 0.12f * scale, cy + dirY * (len / 2f) - 0.12f * scale, z0 + lift + bodyH * 0.5f, 0.24f * scale, 0.24f * scale, neck, body))
-        o.boxes.add(Box(hx - headS / 2f, hy - headS / 2f, z0 + lift + bodyH * 0.5f + neck * 0.9f, headS, headS, headS * 0.8f, body))
-        if (def.diet == Diet.CARNIVORE) o.boxes.add(Box(hx - headS / 2f + dirX * headS * 0.4f, hy - headS / 2f + dirY * headS * 0.4f, z0 + lift + bodyH * 0.5f + neck * 0.9f, headS, headS, headS * 0.25f, 0xFFF4F1EA.toInt()))
-        val tailL = 0.6f * scale
-        val tx = cx - dirX * (len / 2f + tailL / 2f); val ty = cy - dirY * (len / 2f + tailL / 2f)
-        val tw = if (alongX) tailL else 0.18f * scale; val td = if (alongX) 0.18f * scale else tailL
-        o.boxes.add(Box(tx - tw / 2f, ty - td / 2f, z0 + lift + bodyH * 0.55f, tw, td, 0.16f * scale, detail))
+        val scale = DinoModels.scaleOf(def.size)
+        val o = obj(d.x - 0.6f * scale, d.y - 0.6f * scale, 1.2f * scale, 1.2f * scale, 0.3f)
+        val top = DinoModels.build(d) { x, y, z, w, dd, h, color -> o.boxes.add(Box(x, y, z, w, dd, h, color)) }
         // burbujas de estado
-        val bz = z0 + bodyH + neck + headS + 0.35f + 0.08f * sin(time * 4f)
+        val cx = d.x; val cy = d.y
+        val bz = top + 0.3f + 0.08f * sin(time * 4f)
         val bs = 0.3f
         when {
             d.state == DinoState.ESCAPED -> if ((time * 4f).toInt() % 2 == 0) o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
@@ -403,7 +402,9 @@ class IsoRenderer(val cam: IsoCamera) {
             d.stress >= 75f -> if ((time * 4f).toInt() % 2 == 0) o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
             d.stress >= 40f -> o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFF2C14E.toInt()))
         }
-        if (d.id == selectedDino) o.boxes.add(Box(cx - 0.6f * scale, cy - 0.6f * scale, 0.02f, 1.2f * scale, 1.2f * scale, 0f, Color.WHITE, 130))
+        // sombra plana y anillo de selección
+        o.boxes.add(0, Box(cx - 0.45f * scale, cy - 0.35f * scale, 0.005f, 0.9f * scale, 0.7f * scale, 0f, 0xFF000000.toInt(), 55))
+        if (d.id == selectedDino) o.boxes.add(Box(cx - 0.7f * scale, cy - 0.7f * scale, 0.01f, 1.4f * scale, 1.4f * scale, 0f, Color.WHITE, 130))
     }
 
     private fun addVisitor(v: Visitor) {

@@ -23,6 +23,9 @@ class World(var s: GameState) {
     var dirty = false           // el mapa cambió: la vista debe rehacer cachés
     var saveRequested = false
     var amberFlash = 0
+    var cameraMoved = false          // lo marca la vista (paso 1 del tutorial)
+    var tutorialJustCompleted = -1   // índice del paso recién cumplido, para la interfaz
+    private var tutorialAcc = 0f
 
     private var secondAcc = 0f
     private var tenAcc = 0f
@@ -77,6 +80,11 @@ class World(var s: GameState) {
         updateExpeditions(dt)
         updateIncubations(dt)
         updateEvents(dt)
+
+        if (s.tutorialActive) {
+            tutorialAcc += dt
+            if (tutorialAcc >= 0.5f) { tutorialAcc = 0f; updateTutorial() }
+        }
 
         for (a in s.alerts) a.ttl -= dt
         s.alerts.removeAll { it.ttl <= 0f }
@@ -756,6 +764,67 @@ class World(var s: GameState) {
     fun enclosures(): List<RegionInfo> = grid.regions.values.sortedBy { it.id }
 
     fun regionDinos(region: Int) = s.dinos.filter { it.region == region && it.state != DinoState.ESCAPED }
+
+    // ------------------------------------------------------------------ tutorial
+    fun currentTutorialStep(): TutorialStep? =
+        if (s.tutorialActive && s.tutorialStep < Tutorial.count) Tutorial.steps[s.tutorialStep] else null
+
+    private fun updateTutorial() {
+        val step = currentTutorialStep() ?: run { s.tutorialActive = false; return }
+        if (!step.check(this)) return
+        tutorialJustCompleted = s.tutorialStep
+        s.tutorialStep++
+        if (s.tutorialStep >= Tutorial.count) {
+            s.tutorialActive = false
+            say("¡Tutorial completado! Ya conoces lo básico: ahora, a por las cinco estrellas.")
+        } else say("Objetivo cumplido: ${step.title}")
+    }
+
+    fun skipTutorial() { s.tutorialActive = false }
+    fun restartTutorial() { s.tutorialActive = true; s.tutorialStep = 0; cameraMoved = false }
+
+    /** ¿Algún tile de camino alcanzable desde la entrada llega a 2 tiles de un recinto cerrado? (hueco para el mirador) */
+    fun pathReachesEnclosure(): Boolean {
+        val spawn = visitorSim.spawnTiles().firstOrNull() ?: return false
+        val reach = grid.reachablePaths(spawn)
+        for (i in reach.indices) {
+            if (!reach[i]) continue
+            val x = i % n; val y = i / n
+            for (dy in -2..2) for (dx in -2..2) if (grid.regionAt(x + dx, y + dy) > 0) return true
+        }
+        return false
+    }
+
+    /** Isla Libre: un recinto por especie con comedero, agua y el grupo mínimo, para ver los modelos. */
+    fun spawnShowcase(): Int {
+        if (!def.sandbox) return 0
+        val entrance = s.buildings.first { it.type == "entrance" }
+        val pen = 8; val gap = 2
+        val cols = 4
+        var count = 0
+        val x0 = (entrance.x - (cols * (pen + gap)) / 2 + 2).coerceAtLeast(1)
+        val y0 = entrance.y - 12 - 4 * (pen + gap)
+        GameData.species.forEachIndexed { i, sp ->
+            val px = x0 + (i % cols) * (pen + gap); val py = y0 + (i / cols) * (pen + gap)
+            if (py < 1 || px + pen >= n) return@forEachIndexed
+            for (y in py..py + pen - 1) for (x in px..px + pen - 1) {
+                val t = s.terrainAt(x, y)
+                if (t == Terrain.FOREST || t == Terrain.ROCK || t == Terrain.WATER || Terrain.isWalkablePath(t)) s.terrain[s.idx(x, y)] = Terrain.GRASS
+                grid.buildingAt(x, y)?.let { if (it.type != "entrance") s.buildings.remove(it) }
+            }
+            grid.rebuildBuildings(); grid.rebuildRegions()
+            fenceRect(px, py, px + pen - 1, py + pen - 1, Fence.HEAVY)
+            val region = grid.regionAt(px, py)
+            if (region <= 0) return@forEachIndexed
+            placeBuilding(if (sp.diet == Diet.HERBIVORE) "feeder_herb" else "feeder_carn", px, py)
+            placeBuilding("water_trough", px + pen - 1, py + pen - 1)
+            if (sp.requiresWaterTiles > 0) for (k in 0 until sp.requiresWaterTiles) s.terrain[s.idx(px + 1 + k, py + pen - 1)] = Terrain.WATER
+            grid.rebuildRegions()
+            repeat(sp.groupMin.coerceIn(1, 3)) { if (spawnDino(sp.id, region) != null) count++ }
+        }
+        dirty = true
+        return count
+    }
 
     fun afterLoad() {
         grid = Grid(s)

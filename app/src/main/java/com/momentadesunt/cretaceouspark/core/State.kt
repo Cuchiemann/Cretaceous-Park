@@ -133,7 +133,9 @@ class GameState(
     var amberBanked: Int = 0,
     var amberStarsAwarded: Int = 0,
     var ferryTimer: Float = 0f,
-    var autosave: Float = 0f
+    var autosave: Float = 0f,
+    var tutorialActive: Boolean = false,
+    var tutorialStep: Int = 0
 ) {
     fun idx(x: Int, y: Int) = y * size + x
     fun inBounds(x: Int, y: Int) = x >= 0 && y >= 0 && x < size && y < size

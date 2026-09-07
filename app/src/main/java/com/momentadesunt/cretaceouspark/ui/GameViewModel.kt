@@ -26,6 +26,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     var ghostReason by mutableStateOf("")
     var highlightRegion by mutableIntStateOf(-1)
     var uiMessage by mutableStateOf<String?>(null)
+    var tutorialFlash by mutableStateOf(0L)
     private var uiMessageTime = 0L
     var pendingFocus: Pair<Float, Float>? = null
     var view: GameView? = null
@@ -74,6 +75,12 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val def = GameData.islandById.getValue(islandId)
         val s = IslandGen.generate(def, System.currentTimeMillis())
         applyMeta(s)
+        s.tutorialActive = def.id == "brote"
+        if (def.sandbox) {
+            // Isla Libre: todo desbloqueado desde el principio
+            GameData.research.forEach { s.researchDone.add(it.id) }
+            GameData.sites.forEach { s.sitesUnlocked.add(it.id) }
+        }
         startWorld(World(s))
     }
 
@@ -126,9 +133,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------ desde la vista
+    private var lastTutorialStep = -1
     fun onFrame() {
         frame++
         val w = world ?: return
+        if (w.s.tutorialActive && w.s.tutorialStep != lastTutorialStep) {
+            lastTutorialStep = w.s.tutorialStep
+            w.currentTutorialStep()?.category?.let { if (overlay == null) { category = it } }
+        }
+        if (w.tutorialJustCompleted >= 0) { w.tutorialJustCompleted = -1; tutorialFlash = System.currentTimeMillis() }
         if (w.amberFlash > 0) { w.amberFlash = 0; bankMeta(w) }
         if (uiMessage != null && System.currentTimeMillis() - uiMessageTime > 3000) uiMessage = null
         if (ghost != null) refreshGhost()

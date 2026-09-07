@@ -17,7 +17,7 @@ Los datos de balance también están en formato máquina para que la simulación
 
 ## Estado del proyecto
 
-**Prototipo jugable v0.1** en Kotlin (Canvas isométrico + Jetpack Compose). Incluye: 6 islas (de 63×63 a 139×139 tiles), 16 especies, recintos por vallas, comederos y bebederos, caminos, miradores, tiendas, hoteles, centros, expediciones y ADN, incubación, investigación (18 nodos), visitantes con necesidades y gasto, estrés, fugas y dardos, cuatro eventos aleatorios, valoración por estrellas, guardado automático por isla, Ámbar persistente con tienda de desbloqueos (presupuesto, investigaciones iniciales, ADN de especies) y genes en la incubadora (piel, resistencia, temperamento). Pendiente: audio, inglés, retos de isla.
+**Prototipo jugable v0.1** en Kotlin (Canvas isométrico + Jetpack Compose). Incluye: 6 islas (de 63×63 a 139×139 tiles), 16 especies, recintos por vallas, comederos y bebederos, caminos, miradores, tiendas, hoteles, centros, expediciones y ADN, incubación, investigación (18 nodos), visitantes con necesidades y gasto, estrés, fugas y dardos, cuatro eventos aleatorios, valoración por estrellas, guardado automático por isla, Ámbar persistente con tienda de desbloqueos (presupuesto, investigaciones iniciales, ADN de especies) y genes en la incubadora (piel, resistencia, temperamento). Tutorial guiado de 16 objetivos (sin recompensas) en Isla Brote, minimapa táctil y botón Atrás integrado. Pendiente: audio, inglés, retos de isla.
 
 ### Compilar e instalar
 

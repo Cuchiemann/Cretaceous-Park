@@ -44,7 +44,9 @@ fun GameScreen(vm: GameViewModel) {
         AndroidView(factory = { ctx -> GameView(ctx, vm).also { vm.view = it } }, modifier = Modifier.fillMaxSize())
 
         TopBar(vm, w, Modifier.align(Alignment.TopStart))
-        AlertsColumn(vm, w, Modifier.align(Alignment.TopStart).padding(top = 52.dp, start = 10.dp))
+        val tutorial = w.currentTutorialStep()
+        if (tutorial != null) TutorialCard(vm, w, tutorial, Modifier.align(Alignment.TopStart).padding(top = 52.dp, start = 10.dp))
+        AlertsColumn(vm, w, Modifier.align(Alignment.TopStart).padding(top = if (tutorial != null) 190.dp else 52.dp, start = 10.dp))
         CameraControls(vm, Modifier.align(Alignment.TopEnd).padding(top = 168.dp, end = 12.dp))
 
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
@@ -110,6 +112,30 @@ fun StarsChip(v: Float, onClick: (() -> Unit)? = null) {
 @Composable
 private fun SpeedButton(label: String, value: Int, current: Int, onClick: () -> Unit) {
     Chip(label, color = if (current == value) Pal.grass else Pal.panel2, textColor = if (current == value) Color(0xFF0F1A13) else Pal.ink, onClick = onClick)
+}
+
+@Composable
+private fun TutorialCard(vm: GameViewModel, w: World, step: TutorialStep, modifier: Modifier) {
+    val flash = System.currentTimeMillis() - vm.tutorialFlash < 1500
+    Column(
+        modifier.width(340.dp).clip(RoundedCornerShape(6.dp)).background(if (flash) Pal.grassDark.copy(alpha = 0.95f) else Pal.panel)
+            .padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).background(Pal.sand))
+            Spacer(Modifier.width(8.dp))
+            Label("TUTORIAL · ${w.s.tutorialStep + 1} / ${Tutorial.count}")
+            Spacer(Modifier.weight(1f))
+            Text("Saltar", color = Pal.ink3, fontSize = 11.sp, modifier = Modifier.clickable { w.skipTutorial(); vm.message("Tutorial desactivado. Puedes reiniciarlo desde ☰.") })
+        }
+        Text(step.title, color = Pal.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(step.text, color = Pal.ink2, fontSize = 12.sp, lineHeight = 16.sp)
+        if (step.reward > 0) Label("Recompensa: ${step.reward} $")
+        // progreso
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (i in 0 until Tutorial.count) Box(Modifier.weight(1f).height(3.dp).background(if (i < w.s.tutorialStep) Pal.grass else if (i == w.s.tutorialStep) Pal.sand else Pal.line))
+        }
+    }
 }
 
 @Composable
@@ -360,6 +386,9 @@ fun PauseScreen(vm: GameViewModel, w: World) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BlockButton("Seguir jugando", { vm.overlay = null })
                     BlockButton("Guardar y salir", { vm.exitToMenu() }, color = Pal.panel2, textColor = Pal.ink)
+                    if (w.def.sandbox) BlockButton("Ver especies", { val c = w.spawnShowcase(); vm.message("$c dinosaurios de ${GameData.species.size} especies desplegados"); vm.overlay = null; w.s.buildings.firstOrNull { it.type == "entrance" }?.let { e -> vm.focusOn(e.x, e.y - 30) } }, color = Pal.sand, small = true, sub = "un recinto por especie")
+                    if (!w.def.sandbox) BlockButton(if (s.tutorialActive) "Desactivar tutorial" else "Reiniciar tutorial",
+                        { if (s.tutorialActive) w.skipTutorial() else w.restartTutorial(); vm.overlay = null }, color = Pal.panel2, textColor = Pal.ink2, small = true)
                 }
                 Spacer(Modifier.height(10.dp))
                 Label("CÓMO EMPEZAR")

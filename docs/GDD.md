@@ -96,7 +96,13 @@ Regla: **cualquier acción del juego se hace con un dedo, en dos toques como má
 
 ## 4. Bucle de juego
 
-### 4.1 Bucle de minuto (lo que hace el jugador cada 30–90 s)
+### 4.0 Tutorial guiado (Isla Brote)
+
+Al empezar una partida nueva en Isla Brote se activa un tutorial de **16 objetivos encadenados**, al estilo de la primera isla de *Jurassic World Evolution 1*: cada objetivo muestra un título y una instrucción de dos líneas; se comprueba solo cada medio segundo y, al cumplirse, pasa al siguiente. **No da recompensas**: solo enseña a jugar. La pestaña de construcción relevante se abre sola al entrar en cada paso. Se puede **saltar** desde la propia tarjeta y **reiniciar** desde el menú de pausa.
+
+Orden de los objetivos: mover la cámara → recinto de 6×6 → comedero → agua → camino hasta el recinto → mirador → generador → Centro de Expediciones → enviar una expedición → laboratorio con energía → primer dinosaurio → grupo mínimo de la especie → tienda → empezar una investigación → Centro de Rangers → primera estrella.
+
+## 4.1 Bucle de minuto (lo que hace el jugador cada 30–90 s)
 
 1. Mira el HUD: dinero, visitantes, alertas.
 2. Reacciona a una alerta (dino con hambre, valla dañada, cola en una tienda) **o** invierte (nuevo edificio, expedición, investigación).
@@ -147,7 +153,7 @@ Las islas son diez veces más extensas que en el primer borrador (lado ×3,2) pa
 | 4 | Isla Espejo | 114 × 114 | Muchos lagos; construir puentes-camino | + Sabotaje | 4★ en Tormenta |
 | 5 | Isla Corona | 139 × 139 | Todo activado, presupuesto inicial bajo | Todos, frecuencia alta | 5★ en Espejo + 400 Ámbar |
 
-Además: **Isla Libre** (sandbox 126 × 126, dinero infinito, sin estrellas) se desbloquea al completar Isla Brote.
+Además: **Isla Libre** (sandbox 126 × 126, dinero casi infinito, toda la investigación y todos los yacimientos desbloqueados, sin estrellas; desde el menú de pausa puede desplegar un recinto por especie para verlas todas) se desbloquea al completar Isla Brote.
 
 ---
 
@@ -408,7 +414,7 @@ Español e inglés de salida. Todo el texto en `strings.xml`. Sin texto por deba
 
 ### MVP jugable (vertical slice, Isla Brote)
 
-- Rejilla, cámara, controles, colocación de caminos/vallas/2 tiendas.
+- Rejilla, cámara, controles, colocación de caminos/vallas/2 tiendas. Tutorial guiado de 16 objetivos en Isla Brote.
 - 4 especies (Gallimimus, Stegosaurus, Velociraptor, Tyrannosaurus), necesidades, estrés, fuga y dardo.
 - Visitantes básicos, entrada, tiendas, dinero.
 - Expediciones e incubación sin genes. Investigación de 6 nodos. Estrellas. Evento Tormenta. Guardado.

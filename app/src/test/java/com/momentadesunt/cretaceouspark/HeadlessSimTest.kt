@@ -158,3 +158,42 @@ class HeadlessSimTest {
         }
     }
 }
+
+class TutorialTest {
+    @Test
+    fun tutorialAdvancesWithStarterPark() {
+        val s = IslandGen.generate(GameData.islandById.getValue("brote"), 42L)
+        s.tutorialActive = true
+        val w = World(s)
+        assertEquals(0, s.tutorialStep)
+        w.cameraMoved = true
+        repeat(10) { w.tick(0.1f) }
+        assertEquals("paso de camara", 1, s.tutorialStep)
+        val entrance = s.buildings.first { it.type == "entrance" }
+        val px = entrance.x + 1
+        fun clear(x0: Int, y0: Int, x1: Int, y1: Int) { for (y in y0..y1) for (x in x0..x1) if (s.inBounds(x, y)) when (s.terrainAt(x, y)) {
+            Terrain.FOREST -> w.terraform(TerrainTool.CLEAR_FOREST, x, y); Terrain.ROCK -> w.terraform(TerrainTool.BLAST_ROCK, x, y); Terrain.WATER -> w.terraform(TerrainTool.FILL_WATER, x, y) } }
+        clear(px, 3, px, entrance.y - 2); clear(2, 4, 10, 12); clear(10, 12, px, 12); clear(px + 1, entrance.y - 25, px + 3, entrance.y - 3)
+        w.fenceRect(3, 5, 8, 10, Fence.LIGHT)
+        repeat(6) { w.tick(0.1f) }; assertEquals("recinto", 2, s.tutorialStep)
+        assertTrue(w.placeBuilding("feeder_herb", 4, 6).ok); repeat(6) { w.tick(0.1f) }; assertEquals("comedero", 3, s.tutorialStep)
+        assertTrue(w.placeBuilding("water_trough", 7, 9).ok); repeat(6) { w.tick(0.1f) }; assertEquals("agua", 4, s.tutorialStep)
+        for (y in entrance.y - 2 downTo 12) w.placePath(px, y)
+        for (x in 10..px) w.placePath(x, 12)
+        for (y in 7..12) w.placePath(10, y)
+        repeat(6) { w.tick(0.1f) }; assertEquals("camino", 5, s.tutorialStep)
+        assertTrue(w.canPlaceBuilding(GameData.building("viewpoint"), 9, 7).reason, w.placeBuilding("viewpoint", 9, 7).ok)
+        repeat(6) { w.tick(0.1f) }; assertEquals("mirador", 6, s.tutorialStep)
+        assertTrue(w.placeBuilding("generator", px + 1, entrance.y - 4).ok); repeat(6) { w.tick(0.1f) }; assertEquals("generador", 7, s.tutorialStep)
+        assertTrue(w.placeBuilding("expedition_hq", px + 1, entrance.y - 8).ok); repeat(6) { w.tick(0.1f) }; assertEquals("expediciones", 8, s.tutorialStep)
+        assertTrue(w.startExpedition("canon_rojo").ok); repeat(6) { w.tick(0.1f) }; assertEquals("expedicion", 9, s.tutorialStep)
+        assertTrue(w.placeBuilding("lab", px + 1, entrance.y - 12).ok); repeat(12) { w.tick(0.1f) }; assertEquals("laboratorio", 10, s.tutorialStep)
+        val money = s.money
+        w.spawnDino("gallimimus", w.enclosures().first().id); repeat(6) { w.tick(0.1f) }; assertEquals("primer dino", 11, s.tutorialStep)
+        assertTrue("el tutorial no da dinero", s.money <= money)
+        w.spawnDino("gallimimus", w.enclosures().first().id); w.spawnDino("gallimimus", w.enclosures().first().id)
+        repeat(6) { w.tick(0.1f) }; assertEquals("grupo", 12, s.tutorialStep)
+        w.skipTutorial(); assertNull(w.currentTutorialStep())
+        w.restartTutorial(); assertEquals(0, s.tutorialStep)
+    }
+}

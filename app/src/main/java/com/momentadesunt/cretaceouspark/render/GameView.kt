@@ -201,8 +201,8 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             scaleAcc *= detector.scaleFactor
-            if (scaleAcc > 1.35f) { cam.zoomIn(); scaleAcc = 1f }
-            if (scaleAcc < 0.74f) { cam.zoomOut(); scaleAcc = 1f }
+            if (scaleAcc > 1.35f) { cam.zoomIn(); scaleAcc = 1f; vm.world?.cameraMoved = true }
+            if (scaleAcc < 0.74f) { cam.zoomOut(); scaleAcc = 1f; vm.world?.cameraMoved = true }
             return true
         }
     })
@@ -245,7 +245,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
                         else -> dragging = true
                     }
                 }
-                if (dragging) { cam.panBy(e.x - lastX, e.y - lastY) }
+                if (dragging) { cam.panBy(e.x - lastX, e.y - lastY); vm.world?.cameraMoved = true }
                 else if (painting) {
                     val t = vm.tool
                     if (t is Tool.FenceTool) rectEnd = cam.screenToTile(e.x, e.y) else paintAt(e.x, e.y, t)
