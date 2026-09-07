@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.CretaceousPark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#15201A</item>
+        <item name="android:statusBarColor">#15201A</item>
+        <item name="android:navigationBarColor">#15201A</item>
+    </style>
+</resources>

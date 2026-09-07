@@ -1,0 +1,72 @@
+{
+  "$comment": "Cretaceous Park - edificios, vallas, terreno. Fuente de verdad: docs/BALANCE.md seccion 2. upkeep en $/min. size [ancho, alto] en tiles. needsPath: requiere camino adyacente. needsPower: dentro de radio de Generador.",
+  "fences": [
+    { "id": "light",    "name": "Valla ligera",    "cost": 50,  "upkeep": 1, "hp": 100, "unlock": "start" },
+    { "id": "medium",   "name": "Valla media",     "cost": 120, "upkeep": 2, "hp": 250, "unlock": "research:B1" },
+    { "id": "heavy",    "name": "Valla pesada",    "cost": 300, "upkeep": 4, "hp": 600, "unlock": "research:B3" },
+    { "id": "electric", "name": "Valla eléctrica", "cost": 250, "upkeep": 3, "hp": 400, "unlock": "research:B6", "needsPower": true, "attackMultiplierPowered": 0.3, "unpoweredBehavesAs": "light" },
+    { "id": "gate",     "name": "Puerta",          "cost": 200, "upkeep": 1, "hp": "adjacent", "unlock": "start", "closedByDefault": true }
+  ],
+  "repairCostFraction": 0.3,
+  "repairSeconds": 5,
+  "demolishRefundFraction": 0.5,
+  "buildings": [
+    { "id": "feeder_herb",     "category": "enclosure", "name": "Comedero herbívoros", "size": [1, 1], "cost": 800,   "upkeep": 0,   "unlock": "start", "insideEnclosure": true, "stock": 50, "refillCost": 200, "autoRefillUnlock": "research:B1", "autoRefillAt": 10 },
+    { "id": "feeder_carn",     "category": "enclosure", "name": "Comedero carnívoros", "size": [1, 1], "cost": 1500,  "upkeep": 0,   "unlock": "start", "insideEnclosure": true, "stock": 20, "refillCost": 400 },
+    { "id": "water_trough",    "category": "enclosure", "name": "Bebedero",            "size": [1, 1], "cost": 500,   "upkeep": 2,   "unlock": "start", "insideEnclosure": true, "waterTilesEquivalentResearched": 4, "waterResearch": "research:B2" },
+    { "id": "dino_shelter",    "category": "enclosure", "name": "Refugio de dinos",    "size": [2, 2], "cost": 2000,  "upkeep": 5,   "unlock": "research:B4", "insideEnclosure": true, "stormStressRelief": 20 },
+
+    { "id": "path",            "category": "paths", "name": "Camino",       "size": [1, 1], "cost": 20,   "upkeep": 0,  "unlock": "start", "visitorCapacity": 2 },
+    { "id": "path_wide",       "category": "paths", "name": "Camino ancho", "size": [2, 1], "cost": 50,   "upkeep": 0,  "unlock": "research:E2", "visitorCapacity": 5 },
+    { "id": "bridge",          "category": "paths", "name": "Puente",       "size": [1, 1], "cost": 150,  "upkeep": 1,  "unlock": "start", "onWater": true, "visitorCapacity": 2 },
+    { "id": "viewpoint",       "category": "paths", "name": "Mirador",      "size": [1, 1], "cost": 600,  "upkeep": 5,  "unlock": "start", "needsPath": true, "attachToFence": true, "visitorCapacity": 6,  "viewRange": 6 },
+    { "id": "gallery",         "category": "paths", "name": "Galería",      "size": [2, 1], "cost": 1500, "upkeep": 10, "unlock": "research:E1", "needsPath": true, "attachToFence": true, "visitorCapacity": 12, "viewRange": 8, "isShelter": true },
+
+    { "id": "shop_food",       "category": "services", "name": "Tienda de comida",    "size": [2, 2], "cost": 3000,  "upkeep": 40,  "unlock": "start", "needsPath": true, "needsPower": true, "serveSeconds": 2.0, "price": 15, "restores": { "hunger": 60 } },
+    { "id": "shop_drink",      "category": "services", "name": "Tienda de bebida",    "size": [2, 2], "cost": 2500,  "upkeep": 30,  "unlock": "start", "needsPath": true, "needsPower": true, "serveSeconds": 1.5, "price": 8,  "restores": { "thirst": 60 } },
+    { "id": "shop_gift",       "category": "services", "name": "Tienda de recuerdos", "size": [2, 2], "cost": 5000,  "upkeep": 50,  "unlock": "research:E3", "needsPath": true, "needsPower": true, "serveSeconds": 3.0, "price": 40, "restores": { "fun": 20 } },
+    { "id": "toilets",         "category": "services", "name": "Aseos",               "size": [1, 1], "cost": 1000,  "upkeep": 10,  "unlock": "start", "needsPath": true, "serveSeconds": 4.0, "price": 0,  "restores": { "rest": 30 } },
+    { "id": "hotel_small",     "category": "services", "name": "Hotel pequeño",       "size": [3, 3], "cost": 12000, "upkeep": 120, "unlock": "research:E4", "needsPath": true, "needsPower": true, "beds": 20, "price": 60, "restores": { "rest": 100 } },
+    { "id": "hotel_large",     "category": "services", "name": "Hotel grande",        "size": [3, 3], "cost": 30000, "upkeep": 250, "unlock": "research:E5", "needsPath": true, "needsPower": true, "beds": 60, "price": 80, "restores": { "rest": 100 } },
+    { "id": "visitor_shelter", "category": "services", "name": "Refugio de visitantes", "size": [2, 2], "cost": 4000, "upkeep": 20, "unlock": "start", "needsPath": true, "isShelter": true, "shelterCapacity": 40 },
+
+    { "id": "entrance",        "category": "centers", "name": "Entrada del parque",      "size": [3, 2], "cost": 0,     "upkeep": 50,  "unlock": "fixed", "entryPrices": [20, 40, 70], "ferryIntervalSeconds": 20 },
+    { "id": "generator",       "category": "centers", "name": "Generador",               "size": [2, 2], "cost": 8000,  "upkeep": 100, "unlock": "start", "needsPath": true, "powerRadius": 10 },
+    { "id": "expedition_hq",   "category": "centers", "name": "Centro de Expediciones",  "size": [3, 3], "cost": 15000, "upkeep": 150, "unlock": "start", "needsPath": true, "teams": 1, "teamsResearched": 2 },
+    { "id": "lab",             "category": "centers", "name": "Laboratorio e Incubadora","size": [3, 3], "cost": 25000, "upkeep": 250, "unlock": "start", "needsPath": true, "needsPower": true },
+    { "id": "research_center", "category": "centers", "name": "Centro de Investigación", "size": [3, 3], "cost": 20000, "upkeep": 200, "unlock": "start", "needsPath": true, "researchPointsPerMin": 10, "poweredBonusPerMin": 5, "maxCount": 2 },
+    { "id": "ranger_station",  "category": "centers", "name": "Centro de Rangers",       "size": [3, 3], "cost": 18000, "upkeep": 200, "unlock": "start", "needsPath": true, "actionRadius": 15, "dartCooldownSeconds": 8 }
+  ],
+  "terrain": [
+    { "id": "clear_forest", "name": "Talar",         "from": "forest", "to": "grass",  "cost": 100 },
+    { "id": "dig_water",    "name": "Cavar agua",    "from": "grass",  "to": "water",  "cost": 150 },
+    { "id": "fill_water",   "name": "Rellenar",      "from": "water",  "to": "grass",  "cost": 150 },
+    { "id": "plant_forest", "name": "Plantar",       "from": "grass",  "to": "forest", "cost": 80 },
+    { "id": "blast_rock",   "name": "Demoler roca",  "from": "rock",   "to": "grass",  "cost": 400 }
+  ],
+  "visitors": {
+    "maxAgents": 150,
+    "arrivalBase": 2,
+    "arrivalPerAttraction": 0.25,
+    "priceModifiers": { "low": 1.2, "mid": 1.0, "high": 0.8, "highLowReputation": 0.6 },
+    "needsStart": { "hunger": 70, "thirst": 70, "rest": 100, "fun": 30 },
+    "decaySeconds": { "hunger": 6, "thirst": 4, "rest": 8, "fun": 5 },
+    "seekThreshold": 40,
+    "patienceSeconds": 40,
+    "patiencePenalty": 20,
+    "budget": 120,
+    "budgetPerNight": 30,
+    "visitSeconds": 180,
+    "maxNights": 2,
+    "spendMultiplier": [ { "comfortMin": 70, "mult": 1.0 }, { "comfortMin": 40, "mult": 0.5 }, { "comfortMin": 0, "mult": 0.2 } ],
+    "angryLeaveComfort": 30,
+    "angryLeaveReputation": -0.5,
+    "viewTickSeconds": 5,
+    "viewNearTiles": 4,
+    "viewFarFactor": 0.5,
+    "largeSpeciesRangeFactor": 1.5,
+    "noveltyRepeatFactor": 0.4,
+    "injuryCost": 2000,
+    "deathCost": 10000
+  }
+}

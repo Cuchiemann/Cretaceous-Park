@@ -1,0 +1,77 @@
+{
+  "$comment": "Cretaceous Park - especies. Fuente de verdad: docs/BALANCE.md seccion 1. size: S=1x1, M=2x2, L=3x3 tiles. Tiempos en segundos a 1x.",
+  "sizes": {
+    "S": { "footprint": 1, "foodPerMin": 10, "waterPerMin": 15, "feederUnitsPerMeal": 1, "speed": 1.5, "incubationSeconds": 30, "transportCost": 2000, "cureCost": 1500 },
+    "M": { "footprint": 2, "foodPerMin": 12, "waterPerMin": 15, "feederUnitsPerMeal": 2, "speed": 1.0, "incubationSeconds": 60, "transportCost": 5000, "cureCost": 3000 },
+    "L": { "footprint": 3, "foodPerMin": 15, "waterPerMin": 15, "feederUnitsPerMeal": 4, "speed": 0.7, "incubationSeconds": 90, "transportCost": 10000, "cureCost": 6000 }
+  },
+  "species": [
+    { "id": "gallimimus",      "diet": "herbivore", "size": "S", "cost": 8000,   "spaceMin": 4,  "groupMin": 3, "groupMax": 10, "attraction": 2,  "danger": 1,  "attack": 5,   "fenceMin": "light", "darts": 1, "site": "canon_rojo",         "colors": ["#C9A227", "#7A5C1E"] },
+    { "id": "dryosaurus",      "diet": "herbivore", "size": "S", "cost": 7000,   "spaceMin": 4,  "groupMin": 2, "groupMax": 8,  "attraction": 2,  "danger": 1,  "attack": 5,   "fenceMin": "light", "darts": 1, "site": "canon_rojo",         "colors": ["#6FA84F", "#3E6B2E"] },
+    { "id": "parasaurolophus", "diet": "herbivore", "size": "M", "cost": 18000,  "spaceMin": 9,  "groupMin": 2, "groupMax": 8,  "attraction": 4,  "danger": 2,  "attack": 20,  "fenceMin": "medium", "darts": 2, "site": "canon_rojo",        "colors": ["#D9773B", "#8C4A21"] },
+    { "id": "stegosaurus",     "diet": "herbivore", "size": "M", "cost": 22000,  "spaceMin": 10, "groupMin": 1, "groupMax": 5,  "attraction": 5,  "danger": 3,  "attack": 35,  "fenceMin": "medium", "darts": 2, "site": "estepa_gris",       "colors": ["#5B8C5A", "#C0392B"] },
+    { "id": "ankylosaurus",    "diet": "herbivore", "size": "M", "cost": 26000,  "spaceMin": 10, "groupMin": 1, "groupMax": 4,  "attraction": 5,  "danger": 3,  "attack": 45,  "fenceMin": "medium", "darts": 2, "site": "costa_de_sal",      "colors": ["#8B7355", "#4A3B2A"] },
+    { "id": "triceratops",     "diet": "herbivore", "size": "L", "cost": 40000,  "spaceMin": 16, "groupMin": 1, "groupMax": 5,  "attraction": 6,  "danger": 4,  "attack": 70,  "fenceMin": "heavy", "darts": 3, "site": "costa_de_sal",       "colors": ["#7D8B6A", "#E8E1C9"] },
+    { "id": "brachiosaurus",   "diet": "herbivore", "size": "L", "cost": 60000,  "spaceMin": 25, "groupMin": 1, "groupMax": 4,  "attraction": 8,  "danger": 2,  "attack": 60,  "fenceMin": "heavy", "darts": 3, "site": "bosque_petrificado", "colors": ["#6B8E9F", "#3F5B68"] },
+    { "id": "diplodocus",      "diet": "herbivore", "size": "L", "cost": 55000,  "spaceMin": 24, "groupMin": 1, "groupMax": 4,  "attraction": 7,  "danger": 2,  "attack": 55,  "fenceMin": "heavy", "darts": 3, "site": "bosque_petrificado", "colors": ["#9A8C6B", "#5E533F"] },
+    { "id": "compsognathus",   "diet": "carnivore", "size": "S", "cost": 9000,   "spaceMin": 3,  "groupMin": 4, "groupMax": 12, "attraction": 3,  "danger": 1,  "attack": 8,   "fenceMin": "light", "darts": 1, "site": "canon_rojo",         "colors": ["#4E9E8F", "#2C5E55"] },
+    { "id": "velociraptor",    "diet": "carnivore", "size": "S", "cost": 20000,  "spaceMin": 6,  "groupMin": 2, "groupMax": 6,  "attraction": 6,  "danger": 6,  "attack": 25,  "fenceMin": "medium", "darts": 1, "site": "estepa_gris",       "colors": ["#B5651D", "#2E2E2E"] },
+    { "id": "dilophosaurus",   "diet": "carnivore", "size": "M", "cost": 24000,  "spaceMin": 8,  "groupMin": 2, "groupMax": 5,  "attraction": 5,  "danger": 5,  "attack": 30,  "fenceMin": "medium", "darts": 2, "site": "estepa_gris",       "colors": ["#7B9E3C", "#E1B12C"] },
+    { "id": "ceratosaurus",    "diet": "carnivore", "size": "M", "cost": 32000,  "spaceMin": 12, "groupMin": 1, "groupMax": 2,  "attraction": 6,  "danger": 6,  "attack": 45,  "fenceMin": "medium", "darts": 2, "site": "costa_de_sal",      "colors": ["#A63D40", "#4B1D1F"] },
+    { "id": "carnotaurus",     "diet": "carnivore", "size": "M", "cost": 36000,  "spaceMin": 12, "groupMin": 1, "groupMax": 2,  "attraction": 6,  "danger": 7,  "attack": 50,  "fenceMin": "heavy", "darts": 2, "site": "bosque_petrificado", "colors": ["#8E3B46", "#D4A15A"] },
+    { "id": "allosaurus",      "diet": "carnivore", "size": "L", "cost": 55000,  "spaceMin": 20, "groupMin": 1, "groupMax": 2,  "attraction": 8,  "danger": 8,  "attack": 80,  "fenceMin": "heavy", "darts": 3, "site": "desierto_blanco",    "colors": ["#B08D57", "#5A3E1B"] },
+    { "id": "spinosaurus",     "diet": "carnivore", "size": "L", "cost": 75000,  "spaceMin": 24, "groupMin": 1, "groupMax": 1,  "attraction": 9,  "danger": 9,  "attack": 90,  "fenceMin": "heavy", "darts": 3, "site": "desierto_blanco",    "colors": ["#3E7C8F", "#E0762E"], "requiresWaterTiles": 4 },
+    { "id": "tyrannosaurus",   "diet": "carnivore", "size": "L", "cost": 100000, "spaceMin": 24, "groupMin": 1, "groupMax": 1,  "attraction": 10, "danger": 10, "attack": 120, "fenceMin": "heavy", "darts": 3, "site": "glaciar_norte",      "colors": ["#6B5B4E", "#2B2320"], "fenceRecommended": "electric" }
+  ],
+  "sites": [
+    { "id": "canon_rojo",         "name": "Cañón Rojo",         "cost": 3000,  "seconds": 60,  "fossils": 4, "unlock": "start" },
+    { "id": "estepa_gris",        "name": "Estepa Gris",        "cost": 5000,  "seconds": 75,  "fossils": 4, "unlock": "research:G1" },
+    { "id": "costa_de_sal",       "name": "Costa de Sal",       "cost": 7000,  "seconds": 90,  "fossils": 4, "unlock": "research:G4" },
+    { "id": "bosque_petrificado", "name": "Bosque Petrificado", "cost": 9000,  "seconds": 100, "fossils": 3, "unlock": "island:ceniza" },
+    { "id": "desierto_blanco",    "name": "Desierto Blanco",    "cost": 11000, "seconds": 110, "fossils": 3, "unlock": "island:tormenta" },
+    { "id": "glaciar_norte",      "name": "Glaciar Norte",      "cost": 12000, "seconds": 120, "fossils": 3, "unlock": "island:espejo" }
+  ],
+  "fossilQuality": [
+    { "id": "low",  "weight": 0.50, "dnaMin": 5,  "dnaMax": 10, "sellPrice": 1000 },
+    { "id": "mid",  "weight": 0.35, "dnaMin": 10, "dnaMax": 20, "sellPrice": 2500 },
+    { "id": "high", "weight": 0.13, "dnaMin": 20, "dnaMax": 35, "sellPrice": 5000 },
+    { "id": "rare", "weight": 0.02, "dnaMin": 35, "dnaMax": 35, "sellPrice": 5000, "amber": 5 }
+  ],
+  "cloning": {
+    "dnaMinToClone": 50,
+    "viabilityAt50": 55,
+    "viabilityAt100": 98,
+    "viabilityPenaltyPerGene": 5,
+    "maxParallelIncubations": 2,
+    "maxParallelIncubationsResearched": 3
+  },
+  "needs": {
+    "weights": { "space": 0.30, "food": 0.30, "water": 0.20, "social": 0.20 },
+    "groupFactorStep": 0.05,
+    "groupFactorMin": 0.6,
+    "sandSpaceValue": 0.5,
+    "forestSpaceValueHerbivore": 1.0,
+    "forestSpaceValueCarnivore": 0.5,
+    "socialMissingPenalty": 25,
+    "socialMissingFloor": 25,
+    "socialOvercrowded": 30,
+    "socialForeignCarnivorePenalty": 40,
+    "seekThreshold": 40,
+    "mealRestore": 40,
+    "starvationSecondsToDeath": 90
+  },
+  "stress": {
+    "riseBelowWellbeing": 50,
+    "riseDivisor": 25,
+    "fallAboveWellbeing": 60,
+    "fallDivisor": 20,
+    "yellowBubble": 40,
+    "redBubble": 75,
+    "attackAt": 100,
+    "attackIntervalSeconds": 3,
+    "electricFenceMultiplier": 0.3,
+    "stormStressPerSecond": 0.5,
+    "sleepSeconds": 60,
+    "dartCooldownSeconds": 8
+  }
+}
