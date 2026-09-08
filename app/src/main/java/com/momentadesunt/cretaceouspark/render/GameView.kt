@@ -13,7 +13,6 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewConfiguration
 import com.momentadesunt.cretaceouspark.core.EdgeRef
-import com.momentadesunt.cretaceouspark.core.Fence
 import com.momentadesunt.cretaceouspark.core.GameData
 import com.momentadesunt.cretaceouspark.core.Terrain
 import com.momentadesunt.cretaceouspark.core.DinoState
@@ -187,7 +186,9 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
             val def = GameData.building(t.defId)
             IsoRenderer.Ghost(g.first, g.second, def.w, def.h, vm.ghostOk, def.height, def.color)
         } else null
-        renderer.rectPreview = rectStart?.let { st -> rectEnd?.let { en -> intArrayOf(st.first, st.second, en.first, en.second) } }
+        renderer.planKeys = vm.planKeys; renderer.planOk = vm.planOk
+        renderer.planFenceType = (t as? Tool.FenceTool)?.type ?: 0
+        renderer.brush = vm.brushAt
     }
 
     // ------------------------------------------------------------------ gestos
@@ -196,12 +197,15 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
     private var lastX = 0f; private var lastY = 0f
     private var dragging = false
     private var painting = false
+    private var movingGhost = false
+    private var ghostOffX = 0; private var ghostOffY = 0
     private var multi = false
-    private var rectStart: Pair<Int, Int>? = null
-    private var rectEnd: Pair<Int, Int>? = null
-    private var lastPaintTile = -1
+    private var lastCorner: Pair<Int, Int>? = null   // vértice anterior al dibujar vallas
+    private var lastPaintTile = -1                    // tile anterior al pintar caminos / pincel
     private var scaleAcc = 1f
     private var miniDrag = false
+    private val strokeCells = ArrayList<Int>()
+    private val brushCells = HashSet<Int>()
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -224,11 +228,11 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
                 }
                 miniDrag = false
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y; downTime = System.currentTimeMillis()
-                dragging = false; painting = false; multi = false; scaleAcc = 1f
-                rectStart = null; rectEnd = null; lastPaintTile = -1
+                dragging = false; painting = false; movingGhost = false; multi = false; scaleAcc = 1f
+                lastCorner = null; lastPaintTile = -1
                 parent?.requestDisallowInterceptTouchEvent(true)
             }
-            MotionEvent.ACTION_POINTER_DOWN -> { multi = true; rectStart = null; rectEnd = null }
+            MotionEvent.ACTION_POINTER_DOWN -> { multi = true; endStroke() }
             MotionEvent.ACTION_MOVE -> {
                 if (miniDrag) {
                     val n = vm.world?.s?.size ?: return true
@@ -243,74 +247,117 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
                     return true
                 }
                 val moved = hypot(e.x - downX, e.y - downY) > slop
-                if (moved && !dragging && !painting) {
-                    when (val t = vm.tool) {
-                        is Tool.FenceTool -> { painting = true; rectStart = cam.screenToTile(downX, downY) }
-                        is Tool.PathTool, is Tool.Terraform -> { painting = true; paintAt(downX, downY, t) }
-                        else -> dragging = true
-                    }
-                }
+                if (moved && !dragging && !painting && !movingGhost) beginStroke()
                 if (dragging) { cam.panBy(e.x - lastX, e.y - lastY); vm.world?.cameraMoved = true }
-                else if (painting) {
-                    val t = vm.tool
-                    if (t is Tool.FenceTool) rectEnd = cam.screenToTile(e.x, e.y) else paintAt(e.x, e.y, t)
-                }
+                else if (painting) strokeTo(e.x, e.y)
+                else if (movingGhost) { val (tx, ty) = cam.screenToTile(e.x, e.y); vm.setGhost(tx + ghostOffX, ty + ghostOffY) }
                 lastX = e.x; lastY = e.y
             }
             MotionEvent.ACTION_UP -> {
                 if (miniDrag) { miniDrag = false; return true }
                 if (multi) { multi = false; return true }
-                if (painting) {
-                    val t = vm.tool
-                    if (t is Tool.FenceTool && rectStart != null && rectEnd != null) {
-                        val w = vm.world
-                        val st = rectStart!!; val en = rectEnd!!
-                        if (w != null && (st != en)) {
-                            val placed = w.fenceRect(st.first, st.second, en.first, en.second, t.type)
-                            val fail = w.lastFenceFail
-                            vm.message(when {
-                                placed > 0 && fail.isNotEmpty() -> "$placed tramos colocados · $fail"
-                                placed > 0 -> "$placed tramos de ${Fence.names[t.type]}"
-                                fail.isNotEmpty() -> "No se pudo vallar: $fail"
-                                else -> "No se pudo vallar ahí"
-                            })
-                        } else if (w != null) tap(downX, downY)
-                    }
-                    rectStart = null; rectEnd = null
-                } else if (!dragging && System.currentTimeMillis() - downTime < 400) {
-                    tap(e.x, e.y)
-                }
-                dragging = false; painting = false
+                if (painting) endStroke()
+                else if (!dragging && !movingGhost && System.currentTimeMillis() - downTime < 400) tap(e.x, e.y)
+                dragging = false; movingGhost = false
             }
-            MotionEvent.ACTION_CANCEL -> { dragging = false; painting = false; multi = false; rectStart = null; rectEnd = null }
+            MotionEvent.ACTION_CANCEL -> { endStroke(); dragging = false; movingGhost = false; multi = false }
         }
         return true
     }
 
-    private fun paintAt(px: Float, py: Float, t: Tool) {
+    /** Primer movimiento con un dedo: decide entre mover cámara, dibujar o arrastrar el plano. */
+    private fun beginStroke() {
+        val w = vm.world ?: run { dragging = true; return }
+        when (val t = vm.tool) {
+            is Tool.FenceTool -> { painting = true; lastCorner = snapCorner(downX, downY, w.n) }
+            is Tool.PathTool -> { painting = true; lastPaintTile = -1; strokeTo(downX, downY) }
+            is Tool.Terraform, is Tool.Demolish -> { painting = true; lastPaintTile = -1; strokeTo(downX, downY) }
+            is Tool.Build -> {
+                val g = vm.ghost
+                val (tx, ty) = cam.screenToTile(downX, downY)
+                val def = GameData.building(t.defId)
+                if (g != null && tx >= g.first && tx < g.first + def.w && ty >= g.second && ty < g.second + def.h) {
+                    movingGhost = true; ghostOffX = g.first - tx; ghostOffY = g.second - ty
+                } else dragging = true
+            }
+            else -> dragging = true
+        }
+    }
+
+    private fun strokeTo(px: Float, py: Float) {
         val w = vm.world ?: return
-        val (tx, ty) = cam.screenToTile(px, py)
-        if (!w.s.inBounds(tx, ty)) return
+        when (val t = vm.tool) {
+            is Tool.FenceTool -> drawFenceTo(px, py, w.n)
+            is Tool.PathTool -> { lineTo(px, py, w); vm.planAddAll(strokeCells) }
+            is Tool.Terraform -> { lineTo(px, py, w); stampBrush(w) { w.terraformMany(t.t, it) } }
+            is Tool.Demolish -> { lineTo(px, py, w); stampBrush(w) { w.demolishBrush(it) } }
+            else -> {}
+        }
+    }
+
+    private fun endStroke() {
+        painting = false; lastCorner = null; lastPaintTile = -1; vm.brushAt = null
+    }
+
+    /** Vértice de la rejilla más cercano al punto de pantalla, acotado a la isla. */
+    private fun snapCorner(px: Float, py: Float, n: Int): Pair<Int, Int> {
+        val (wx, wy) = cam.screenToWorld(px, py)
+        return Pair(Math.round(wx).coerceIn(0, n), Math.round(wy).coerceIn(0, n))
+    }
+
+    /** Dibujo de vallas: une el vértice anterior con el actual siguiendo la rejilla y añade los bordes al plano. */
+    private fun drawFenceTo(px: Float, py: Float, n: Int) {
+        val (tx, ty) = snapCorner(px, py, n)
+        val from = lastCorner ?: Pair(tx, ty).also { lastCorner = it }
+        var cx = from.first; var cy = from.second
+        strokeCells.clear()
+        var guard = 0
+        while ((cx != tx || cy != ty) && guard++ < 400) {
+            if (abs(tx - cx) >= abs(ty - cy)) {
+                if (tx > cx) { strokeCells.add(EdgeRef(true, cx, cy).key()); cx++ } else { cx--; strokeCells.add(EdgeRef(true, cx, cy).key()) }
+            } else {
+                if (ty > cy) { strokeCells.add(EdgeRef(false, cx, cy).key()); cy++ } else { cy--; strokeCells.add(EdgeRef(false, cx, cy).key()) }
+            }
+        }
+        lastCorner = Pair(tx, ty)
+        vm.planAddAll(strokeCells)
+    }
+
+    /** Línea 4-conexa desde el último tile hasta el punto dado; deja los tiles en strokeCells. */
+    private fun lineTo(px: Float, py: Float, w: com.momentadesunt.cretaceouspark.core.World) {
+        strokeCells.clear()
+        val (tx0, ty0) = cam.screenToTile(px, py)
+        val tx = tx0.coerceIn(0, w.n - 1); val ty = ty0.coerceIn(0, w.n - 1)
         val idx = w.s.idx(tx, ty)
         if (idx == lastPaintTile) return
-        // línea 4-conexa desde el último tile pintado para que los caminos queden unidos por lados
-        val cells = ArrayList<Pair<Int, Int>>()
         if (lastPaintTile >= 0) {
             var cx = lastPaintTile % w.n; var cy = lastPaintTile / w.n
             var guard = 0
-            while ((cx != tx || cy != ty) && guard++ < 200) {
-                if (kotlin.math.abs(tx - cx) >= kotlin.math.abs(ty - cy)) cx += if (tx > cx) 1 else -1 else cy += if (ty > cy) 1 else -1
-                cells.add(Pair(cx, cy))
+            while ((cx != tx || cy != ty) && guard++ < 400) {
+                if (abs(tx - cx) >= abs(ty - cy)) cx += if (tx > cx) 1 else -1 else cy += if (ty > cy) 1 else -1
+                strokeCells.add(w.s.idx(cx, cy))
             }
-        } else cells.add(Pair(tx, ty))
+        } else strokeCells.add(idx)
         lastPaintTile = idx
-        for ((px2, py2) in cells) {
-            when (t) {
-                is Tool.PathTool -> w.placePath(px2, py2)
-                is Tool.Terraform -> w.terraform(t.t, px2, py2)
-                else -> {}
+    }
+
+    /** Aplica el pincel (radio según vm.brushSize) sobre cada tile de strokeCells, una sola llamada al mundo. */
+    private fun stampBrush(w: com.momentadesunt.cretaceouspark.core.World, apply: (IntArray) -> Int): Int {
+        val r = vm.brushSize - 1
+        val r2 = r * r + 0.5f
+        val n = w.n
+        if (lastPaintTile >= 0) vm.brushAt = floatArrayOf(lastPaintTile % n + 0.5f, lastPaintTile / n + 0.5f, r + 0.5f)
+        if (strokeCells.isEmpty()) return 0
+        brushCells.clear()
+        for (c in strokeCells) {
+            val cx = c % n; val cy = c / n
+            for (dy in -r..r) for (dx in -r..r) {
+                if (dx * dx + dy * dy > r2) continue
+                val x = cx + dx; val y = cy + dy
+                if (x in 0 until n && y in 0 until n) brushCells.add(y * n + x)
             }
         }
+        return apply(brushCells.toIntArray())
     }
 
     /** Borde más cercano al punto de mundo (wx, wy). */
@@ -334,28 +381,34 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
             is Tool.None -> select(px, py, wx, wy)
             is Tool.FenceTool -> {
                 val (e, _) = nearestEdge(wx, wy)
-                val r = w.placeFence(e, t.type)
-                if (!r.ok) vm.message(r.reason)
+                if (w.edgeValid(e)) vm.planAdd(e.key(), toggle = true)
             }
             is Tool.Gate -> {
                 val (e, _) = nearestEdge(wx, wy)
                 val r = w.toggleGate(e); if (!r.ok) vm.message(r.reason)
             }
-            is Tool.PathTool -> { val r = w.placePath(tx, ty); if (!r.ok) vm.message(r.reason) }
-            is Tool.Terraform -> { val r = w.terraform(t.t, tx, ty); if (!r.ok) vm.message(r.reason) }
+            is Tool.PathTool -> if (w.s.inBounds(tx, ty)) vm.planAdd(w.s.idx(tx, ty), toggle = true)
+            is Tool.Terraform -> {
+                if (!w.s.inBounds(tx, ty)) return
+                strokeCells.clear(); strokeCells.add(w.s.idx(tx, ty)); lastPaintTile = -1
+                val changed = stampBrush(w) { w.terraformMany(t.t, it) }
+                vm.brushAt = null
+                if (changed == 0) vm.message(w.canTerraform(t.t, tx, ty).reason)
+            }
             is Tool.Demolish -> {
-                val (e, d) = nearestEdge(wx, wy)
-                val r = if (d < 0.22f && w.grid.fenceType(e) != 0) w.removeFence(e) else w.demolishAt(tx, ty)
-                if (!r.ok) vm.message(r.reason)
+                val b = w.grid.buildingAt(tx, ty)
+                if (b != null) { vm.select(Selection.BuildingSel(b.id)); vm.message("Pulsa Demoler en el panel del edificio"); return }
+                if (!w.s.inBounds(tx, ty)) return
+                strokeCells.clear(); strokeCells.add(w.s.idx(tx, ty)); lastPaintTile = -1
+                val removed = stampBrush(w) { w.demolishBrush(it) }
+                vm.brushAt = null
+                if (removed == 0) vm.message("Nada que demoler")
             }
             is Tool.Build -> {
                 val def = GameData.building(t.defId)
-                val gx = tx - def.w / 2; val gy = ty - def.h / 2
                 val g = vm.ghost
-                if (g != null && g.first == gx && g.second == gy) {
-                    val r = w.placeBuilding(t.defId, gx, gy)
-                    if (r.ok) { vm.message("${def.name} construido"); vm.ghost = null } else vm.message(r.reason)
-                } else vm.setGhost(gx, gy)
+                if (g != null && tx >= g.first && tx < g.first + def.w && ty >= g.second && ty < g.second + def.h) return // toque sobre el plano: se queda
+                vm.setGhost(tx - def.w / 2, ty - def.h / 2)
             }
         }
     }
@@ -376,8 +429,6 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
         if (b != null) { vm.select(Selection.BuildingSel(b.id)); return }
         val (e, d) = nearestEdge(wx, wy)
         if (d < 0.25f && w.edgeValid(e) && w.grid.fenceType(e) != 0) { vm.select(Selection.EdgeSel(e)); return }
-        // cualquier borde con valla alrededor del tile si el toque cae cerca
-        if (w.s.inBounds(tx, ty) && Terrain.isWalkablePath(w.s.terrainAt(tx, ty))) { vm.select(null); return }
         vm.select(null)
     }
 }

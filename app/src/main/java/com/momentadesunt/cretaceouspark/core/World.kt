@@ -626,11 +626,24 @@ class World(var s: GameState) {
         return placed
     }
 
-    fun removeFence(e: EdgeRef): Result {
+    /** Coloca un plano de vallas (claves de EdgeRef). Devuelve tramos colocados; el motivo de fallo queda en lastFenceFail. */
+    fun placeFences(keys: IntArray, type: Int): Int {
+        var placed = 0
+        val fails = HashMap<String, Int>()
+        for (k in keys) {
+            val r = placeFence(EdgeRef.fromKey(k), type, false)
+            if (r.ok) placed++ else if (r.reason != "Ya hay esa valla") fails[r.reason] = (fails[r.reason] ?: 0) + 1
+        }
+        lastFenceFail = fails.maxByOrNull { it.value }?.let { "${it.value} tramos: ${it.key}" } ?: ""
+        if (placed > 0) { grid.rebuildRegions(); dirty = true; sfx("place") }
+        return placed
+    }
+
+    fun removeFence(e: EdgeRef, rebuild: Boolean = true): Result {
         if (!edgeValid(e) || grid.fenceType(e) == 0) return Result.fail("No hay valla")
         s.money += Fence.cost[grid.fenceType(e)] * GameData.DEMOLISH_REFUND
         grid.setFence(e, 0, 0, 0)
-        grid.rebuildRegions(); dirty = true
+        if (rebuild) { grid.rebuildRegions(); dirty = true }
         // edificios pegados a valla que se quedan sin ella siguen existiendo (simplificación)
         return Result.OK
     }
@@ -694,14 +707,26 @@ class World(var s: GameState) {
         return Result.OK
     }
 
-    fun removePath(x: Int, y: Int): Result {
+    /** Coloca un plano de caminos (índices de tile). Devuelve tiles colocados; el motivo de fallo queda en lastPathFail. */
+    var lastPathFail: String = ""
+    fun placePaths(tiles: IntArray): Int {
+        var placed = 0
+        val fails = HashMap<String, Int>()
+        for (i in tiles) {
+            val r = placePath(i % n, i / n)
+            if (r.ok) placed++ else if (r.reason != "Ya hay camino") fails[r.reason] = (fails[r.reason] ?: 0) + 1
+        }
+        lastPathFail = fails.maxByOrNull { it.value }?.let { "${it.value} tiles: ${it.key}" } ?: ""
+        return placed
+    }
+
+    fun removePath(x: Int, y: Int, rebuild: Boolean = true): Result {
         if (!s.inBounds(x, y) || !Terrain.isWalkablePath(s.terrainAt(x, y))) return Result.fail("No hay camino")
         if (isEntrancePath(x, y)) return Result.fail("El camino de la entrada es fijo")
         val wasBridge = s.terrainAt(x, y) == Terrain.BRIDGE
         s.terrain[s.idx(x, y)] = if (wasBridge) Terrain.WATER else Terrain.GRASS
         s.money += (if (wasBridge) 150 else 20) * GameData.DEMOLISH_REFUND
-        for (v in s.visitors) v.path.clear()
-        dirty = true
+        if (rebuild) { for (v in s.visitors) v.path.clear(); dirty = true }
         return Result.OK
     }
 
@@ -713,12 +738,33 @@ class World(var s: GameState) {
         return Result.OK
     }
 
-    fun terraform(tool: TerrainTool, x: Int, y: Int): Result {
+    fun terraform(tool: TerrainTool, x: Int, y: Int, rebuild: Boolean = true): Result {
         val r = canTerraform(tool, x, y); if (!r.ok) return r
         spendCapital(tool.cost.toFloat())
         s.terrain[s.idx(x, y)] = tool.to
-        grid.rebuildRegions(); dirty = true
+        if (rebuild) { grid.rebuildRegions(); dirty = true }
         return Result.OK
+    }
+
+    /** Pincel de terreno: aplica la herramienta a varios tiles y reconstruye una sola vez. Devuelve tiles cambiados. */
+    fun terraformMany(tool: TerrainTool, tiles: IntArray): Int {
+        var changed = 0
+        for (i in tiles) if (terraform(tool, i % n, i / n, false).ok) changed++
+        if (changed > 0) { grid.rebuildRegions(); dirty = true; sfx("place") }
+        return changed
+    }
+
+    /** Pincel de demolición: quita caminos y vallas de los tiles dados. Los edificios no se tocan (se demuelen desde su panel). */
+    fun demolishBrush(tiles: IntArray): Int {
+        var removed = 0
+        for (i in tiles) {
+            val x = i % n; val y = i / n
+            if (!s.inBounds(x, y)) continue
+            if (Terrain.isWalkablePath(s.terrainAt(x, y)) && removePath(x, y, false).ok) removed++
+            for (e in grid.fenceEdgesAround(x, y, 1, 1)) if (removeFence(e, false).ok) removed++
+        }
+        if (removed > 0) { grid.rebuildRegions(); for (v in s.visitors) v.path.clear(); dirty = true; sfx("demolish") }
+        return removed
     }
 
     /** Demoler lo que haya en un tile: edificio, camino. */

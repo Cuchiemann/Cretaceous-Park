@@ -38,6 +38,19 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     var ghost by mutableStateOf<Pair<Int, Int>?>(null)
     var ghostOk by mutableStateOf(false)
     var ghostReason by mutableStateOf("")
+
+    // ---- plano pendiente (vallas: claves de borde; caminos: índices de tile) y pincel
+    /** Elementos del plano en orden de dibujo; se confirman con el botón Confirmar. */
+    val plan = LinkedHashSet<Int>()
+    /** Copia inmutable para el render (misma longitud que planOk). */
+    @Volatile var planKeys: IntArray = IntArray(0)
+    @Volatile var planOk: BooleanArray = BooleanArray(0)
+    var planCount by mutableIntStateOf(0)
+    var planCost by mutableIntStateOf(0)
+    var planValid by mutableIntStateOf(0)
+    var brushSize by mutableIntStateOf(1)
+    /** Posición y radio del pincel mientras se pinta (x, y, r); null si no. */
+    @Volatile var brushAt: FloatArray? = null
     var highlightRegion by mutableIntStateOf(-1)
     var uiMessage by mutableStateOf<String?>(null)
     var tutorialFlash by mutableStateOf(0L)
@@ -176,6 +189,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (w.amberFlash > 0) { w.amberFlash = 0; bankMeta(w) }
         if (uiMessage != null && System.currentTimeMillis() - uiMessageTime > 3000) uiMessage = null
         if (ghost != null) refreshGhost()
+        if (plan.isNotEmpty()) refreshPlan()
     }
 
     fun message(msg: String) { uiMessage = msg; uiMessageTime = System.currentTimeMillis() }
@@ -195,10 +209,87 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun useTool(t: Tool) {
         tool = t
         ghost = null
+        clearPlan()
         if (t !is Tool.None) selection = null
     }
 
     fun setGhost(x: Int, y: Int) { ghost = Pair(x, y); refreshGhost() }
+
+    /** Confirma el plano del edificio (Tool.Build + fantasma). */
+    fun confirmGhost() {
+        val w = world ?: return
+        val t = tool as? Tool.Build ?: return
+        val g = ghost ?: return
+        val r = w.placeBuilding(t.defId, g.first, g.second)
+        if (r.ok) { message("${GameData.building(t.defId).name} construido"); ghost = null } else act(r)
+    }
+
+    // ------------------------------------------------------------------ plano de vallas / caminos
+    fun clearPlan() {
+        plan.clear()
+        planKeys = IntArray(0); planOk = BooleanArray(0)
+        planCount = 0; planCost = 0; planValid = 0
+    }
+
+    /** Añade un elemento al plano; con toggle, lo quita si ya estaba. */
+    fun planAdd(key: Int, toggle: Boolean = false) {
+        if (toggle && !plan.add(key)) plan.remove(key) else plan.add(key)
+        refreshPlan()
+    }
+
+    fun planAddAll(keys: List<Int>) { if (keys.isNotEmpty()) { plan.addAll(keys); refreshPlan() } }
+
+    private fun refreshPlan() {
+        val w = world ?: return
+        val keys = plan.toIntArray()
+        val ok = BooleanArray(keys.size)
+        var valid = 0; var cost = 0
+        when (val t = tool) {
+            is Tool.FenceTool -> for (i in keys.indices) {
+                val r = w.canPlaceFence(EdgeRef.fromKey(keys[i]), t.type)
+                ok[i] = r.ok || r.reason == "Dinero insuficiente"
+                if (ok[i]) { valid++; cost += Fence.cost[t.type] }
+            }
+            is Tool.PathTool -> for (i in keys.indices) {
+                val x = keys[i] % w.n; val y = keys[i] / w.n
+                val r = w.canPlacePath(x, y)
+                ok[i] = r.ok || r.reason == "Dinero insuficiente"
+                if (ok[i]) { valid++; cost += if (w.s.terrainAt(x, y) == Terrain.WATER) 150 else 20 }
+            }
+            else -> {}
+        }
+        planKeys = keys; planOk = ok; planCount = keys.size; planValid = valid; planCost = cost
+    }
+
+    fun confirmPlan() {
+        val w = world ?: return
+        if (plan.isEmpty()) return
+        val keys = plan.toIntArray()
+        when (val t = tool) {
+            is Tool.FenceTool -> {
+                val placed = w.placeFences(keys, t.type); val fail = w.lastFenceFail
+                message(when {
+                    placed > 0 && fail.isNotEmpty() -> "$placed tramos colocados · $fail"
+                    placed > 0 -> "$placed tramos de ${Fence.names[t.type]}"
+                    fail.isNotEmpty() -> "No se pudo vallar: $fail"
+                    else -> "No se pudo vallar ahí"
+                })
+                if (placed == 0) audio.event("error")
+            }
+            is Tool.PathTool -> {
+                val placed = w.placePaths(keys); val fail = w.lastPathFail
+                message(when {
+                    placed > 0 && fail.isNotEmpty() -> "$placed tiles de camino · $fail"
+                    placed > 0 -> "$placed tiles de camino"
+                    fail.isNotEmpty() -> "No se pudo: $fail"
+                    else -> "No se pudo hacer camino ahí"
+                })
+                if (placed == 0) audio.event("error")
+            }
+            else -> {}
+        }
+        clearPlan()
+    }
 
     private fun refreshGhost() {
         val w = world ?: return

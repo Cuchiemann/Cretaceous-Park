@@ -54,8 +54,8 @@ fun GameScreen(vm: GameViewModel) {
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
             vm.uiMessage?.let { m -> Toast(m) }
             w.toast?.let { m -> if (vm.uiMessage == null) Toast(m) }
-            if (vm.tool is Tool.Build && vm.ghost != null) Toast(if (vm.ghostOk) "Toca de nuevo para confirmar" else vm.ghostReason, if (vm.ghostOk) Pal.green else Pal.red)
             vm.selection?.let { SelectionPanel(vm, w) }
+            ToolBar(vm, w)
             BuildBar(vm, w)
         }
 
@@ -145,6 +145,44 @@ private fun CameraControls(vm: GameViewModel, modifier: Modifier) {
     }
 }
 
+// ------------------------------------------------------------------ barra de la herramienta activa
+/** Confirmar/borrar el plano (vallas, caminos, edificios) o tamaño del pincel (terreno, demoler). */
+@Composable
+private fun ToolBar(vm: GameViewModel, w: World) {
+    val t = vm.tool
+    if (t is Tool.None || t is Tool.Gate) return
+    Row(Modifier.fillMaxWidth().background(Pal.panel).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        @Composable fun Hint(text: String, color: Color = Pal.text) =
+            Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, style = shadowStyle, maxLines = 2, lineHeight = 13.sp, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        when (t) {
+            is Tool.FenceTool, is Tool.PathTool -> {
+                val what = if (t is Tool.FenceTool) "tramos" else "tiles"
+                Hint(if (vm.planCount == 0) "Dibuja con el dedo sobre el mapa · toca para añadir o quitar" else "${vm.planValid} de ${vm.planCount} $what válidos",
+                    if (vm.planCount > 0 && vm.planValid < vm.planCount) Pal.red else Pal.text)
+                CocButton("Confirmar", { vm.confirmPlan() }, enabled = vm.planValid > 0, small = true, icon = "✓", sub = if (vm.planValid > 0) "${vm.planCost} $" else null)
+                CocButton("Borrar", { vm.clearPlan() }, enabled = vm.planCount > 0, color = Pal.red, dark = Pal.redDark, small = true, icon = "✕")
+            }
+            is Tool.Build -> {
+                val g = vm.ghost
+                val def = GameData.building(t.defId)
+                Hint(when { g == null -> "Toca el mapa para colocar el plano de ${def.name}"; vm.ghostOk -> "Arrastra el plano para moverlo y confirma"; else -> vm.ghostReason },
+                    if (g != null && !vm.ghostOk) Pal.red else Pal.text)
+                CocButton("Confirmar", { vm.confirmGhost() }, enabled = g != null && vm.ghostOk, small = true, icon = "✓", sub = "${def.cost} $")
+                CocButton("Quitar plano", { vm.ghost = null }, enabled = g != null, color = Pal.red, dark = Pal.redDark, small = true, icon = "✕")
+            }
+            else -> {
+                Hint(when (t) {
+                    is Tool.Demolish -> "Pinta para quitar caminos y vallas · toca un edificio para demolerlo"
+                    is Tool.Terraform -> "Pinta sobre el mapa · ${t.t.cost} $ por tile"
+                    else -> ""
+                })
+                Text("Pincel", color = Pal.text3, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                for (sz in 1..4) CocButton("$sz", { vm.brushSize = sz }, Modifier.width(40.dp), color = if (vm.brushSize == sz) Pal.green else Pal.darkBtn, dark = if (vm.brushSize == sz) Pal.greenDark else Pal.darkBtnDark, small = true)
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------ barra inferior
 @Composable
 private fun BuildBar(vm: GameViewModel, w: World) {
@@ -192,16 +230,16 @@ private fun ToolItems(vm: GameViewModel, w: World, cat: Category) {
         Category.ENCLOSURE -> {
             for (t in 1..4) {
                 val ok = w.fenceUnlocked(t)
-                ToolCard(Fence.names[t].removePrefix("Valla "), "🧱", "${Fence.hp[t]} PV · por tramo", "${Fence.cost[t]}", tool == Tool.FenceTool(t), ok.ok, ok.reason) { vm.useTool(Tool.FenceTool(t)) }
+                ToolCard(Fence.names[t].removePrefix("Valla "), "🧱", "${Fence.hp[t]} PV · dibuja y confirma", "${Fence.cost[t]}", tool == Tool.FenceTool(t), ok.ok, ok.reason) { vm.useTool(Tool.FenceTool(t)) }
             }
             ToolCard("Puerta", "🚪", "toca una valla", "200", tool is Tool.Gate, true, "") { vm.useTool(Tool.Gate) }
             for (b in GameData.buildings.filter { it.category == cat }) BuildingCard(vm, w, b)
         }
         Category.PATHS -> {
-            ToolCard("Camino", "🛤", "arrastra para pintar", "20", tool is Tool.PathTool, true, "") { vm.useTool(Tool.PathTool) }
+            ToolCard("Camino", "🛤", "dibuja y confirma", "20", tool is Tool.PathTool, true, "") { vm.useTool(Tool.PathTool) }
             for (b in GameData.buildings.filter { it.category == cat }) BuildingCard(vm, w, b)
         }
-        Category.TERRAIN -> for (t in TerrainTool.values()) ToolCard(t.label, "⛏", "por tile", "${t.cost}", tool == Tool.Terraform(t), true, "") { vm.useTool(Tool.Terraform(t)) }
+        Category.TERRAIN -> for (t in TerrainTool.values()) ToolCard(t.label, "⛏", "pincel · por tile", "${t.cost}", tool == Tool.Terraform(t), true, "") { vm.useTool(Tool.Terraform(t)) }
         else -> for (b in GameData.buildings.filter { it.category == cat && it.id != "entrance" }) BuildingCard(vm, w, b)
     }
 }

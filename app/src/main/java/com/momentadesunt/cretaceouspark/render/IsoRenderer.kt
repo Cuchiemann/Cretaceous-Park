@@ -43,7 +43,11 @@ class IsoRenderer(val cam: IsoCamera) {
 
     // overlay / herramientas
     var ghost: Ghost? = null
-    var rectPreview: IntArray? = null   // x0,y0,x1,y1
+    /** Plano pendiente: claves de borde (vallas) o índices de tile (caminos), con validez por elemento. */
+    var planKeys: IntArray = IntArray(0)
+    var planOk: BooleanArray = BooleanArray(0)
+    var planFenceType = 0        // 0 = el plano son tiles de camino
+    var brush: FloatArray? = null   // x, y, radio (en tiles)
     var selectedDino = -1
     var selectedBuilding = -1
     var selectedEdge: EdgeRef? = null
@@ -287,6 +291,20 @@ class IsoRenderer(val cam: IsoCamera) {
             val o = obj(g.x.toFloat(), g.y.toFloat(), g.w.toFloat(), g.h.toFloat(), 0.5f)
             o.add(RBox(g.x.toFloat(), g.y.toFloat(), 0f, g.w.toFloat(), g.h.toFloat(), g.height, if (g.ok) 0xFF7BE07B.toInt() else 0xFFE06060.toInt(), 150))
         }
+        // plano de vallas pendiente
+        if (planFenceType != 0) {
+            val th = 0.12f
+            val height = when (planFenceType) { Fence.LIGHT -> 0.7f; Fence.MEDIUM -> 0.95f; Fence.HEAVY -> 1.35f; else -> 1.1f }
+            val keys = planKeys; val ok = planOk
+            for (i in keys.indices) {
+                val e = EdgeRef.fromKey(keys[i])
+                if (!onScreen(e.x.toFloat(), e.y.toFloat(), 2f)) continue
+                val col = if (i < ok.size && ok[i]) 0xFF7BE07B.toInt() else 0xFFE06060.toInt()
+                val x = e.x.toFloat(); val y = e.y.toFloat()
+                val o = if (e.h) obj(x, y - th / 2f, 1f, th, 0.5f) else obj(x - th / 2f, y, th, 1f, 0.5f)
+                if (e.h) o.add(RBox(x, y - th / 2f, 0f, 1f, th, height, col, 160)) else o.add(RBox(x - th / 2f, y, 0f, th, 1f, height, col, 160))
+            }
+        }
     }
 
     private fun selectedBuildingIndex(s: GameState): Int = if (selectedBuilding < 0) -1 else s.buildings.indexOfFirst { it.id == selectedBuilding }
@@ -501,18 +519,35 @@ class IsoRenderer(val cam: IsoCamera) {
 
     // ------------------------------------------------------------------ superposiciones
     private fun drawOverlays(c: Canvas, w: World) {
-        rectPreview?.let { r ->
-            val x0 = min(r[0], r[2]).toFloat(); val y0 = min(r[1], r[3]).toFloat()
-            val x1 = max(r[0], r[2]) + 1f; val y1 = max(r[1], r[3]) + 1f
+        // plano de caminos pendiente: rombos translúcidos
+        if (planFenceType == 0 && planKeys.isNotEmpty()) {
+            val n = w.n; val keys = planKeys; val ok = planOk
+            for (i in keys.indices) {
+                val x0 = (keys[i] % n).toFloat(); val y0 = (keys[i] / n).toFloat()
+                if (!onScreen(x0 + 0.5f, y0 + 0.5f, 1f)) continue
+                path.rewind()
+                path.moveTo(cam.worldSx(x0, y0), cam.worldSy(x0, y0, 0.04f))
+                path.lineTo(cam.worldSx(x0 + 1f, y0), cam.worldSy(x0 + 1f, y0, 0.04f))
+                path.lineTo(cam.worldSx(x0 + 1f, y0 + 1f), cam.worldSy(x0 + 1f, y0 + 1f, 0.04f))
+                path.lineTo(cam.worldSx(x0, y0 + 1f), cam.worldSy(x0, y0 + 1f, 0.04f))
+                path.close()
+                paint.color = if (i < ok.size && ok[i]) 0x997BE07B.toInt() else 0x99E06060.toInt()
+                c.drawPath(path, paint)
+            }
+        }
+        // pincel: círculo sobre el suelo
+        brush?.let { b ->
+            val cx = b[0]; val cy = b[1]; val r = b[2]
             path.rewind()
-            path.moveTo(cam.worldSx(x0, y0), cam.worldSy(x0, y0, 0.05f))
-            path.lineTo(cam.worldSx(x1, y0), cam.worldSy(x1, y0, 0.05f))
-            path.lineTo(cam.worldSx(x1, y1), cam.worldSy(x1, y1, 0.05f))
-            path.lineTo(cam.worldSx(x0, y1), cam.worldSy(x0, y1, 0.05f))
+            for (k in 0 until 24) {
+                val a = k * (Math.PI * 2 / 24)
+                val wx = cx + r * Math.cos(a).toFloat(); val wy = cy + r * Math.sin(a).toFloat()
+                if (k == 0) path.moveTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, 0.05f)) else path.lineTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, 0.05f))
+            }
             path.close()
-            linePaint.color = 0xFFFFFFFF.toInt(); linePaint.strokeWidth = 4f
-            c.drawPath(path, linePaint)
             paint.color = 0x33FFFFFF; c.drawPath(path, paint)
+            linePaint.color = 0xFFFFFFFF.toInt(); linePaint.strokeWidth = 3f
+            c.drawPath(path, linePaint)
         }
     }
 
