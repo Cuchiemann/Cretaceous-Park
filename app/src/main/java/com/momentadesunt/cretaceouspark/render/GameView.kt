@@ -45,12 +45,17 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
             }
             lastNanos = frameTimeNanos
             invalidate()
-            if (isAttachedToWindow) choreo.postFrameCallback(this)
+            if (isAttachedToWindow && looping) choreo.postFrameCallback(this)
         }
     }
 
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); lastNanos = 0L; choreo.postFrameCallback(frameCb) }
-    override fun onDetachedFromWindow() { super.onDetachedFromWindow(); choreo.removeFrameCallback(frameCb) }
+    private var looping = false
+    private fun startLoop() { if (!looping) { looping = true; lastNanos = 0L; choreo.postFrameCallback(frameCb) } }
+    private fun stopLoop() { looping = false; choreo.removeFrameCallback(frameCb) }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); if (windowVisibility == VISIBLE) startLoop() }
+    override fun onDetachedFromWindow() { super.onDetachedFromWindow(); stopLoop() }
+    /** En segundo plano no se simula ni se dibuja: sin sonidos ni consumo. */
+    override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(visibility); if (visibility == VISIBLE) startLoop() else stopLoop() }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { super.onSizeChanged(w, h, oldw, oldh); cam.setViewport(w, h) }
 
     private fun step(dt: Float) {

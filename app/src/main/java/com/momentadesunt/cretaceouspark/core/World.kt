@@ -24,6 +24,9 @@ class World(var s: GameState) {
     var saveRequested = false
     var amberFlash = 0
     var cameraMoved = false          // lo marca la vista (paso 1 del tutorial)
+    var soundSink: ((String) -> Unit)? = null
+    fun sfx(name: String) { soundSink?.invoke(name) }
+    val challengeDef: ChallengeDef? get() = s.challenge?.let { GameData.challengeById[it] }
     var tutorialJustCompleted = -1   // índice del paso recién cumplido, para la interfaz
     private var tutorialAcc = 0f
 
@@ -48,9 +51,12 @@ class World(var s: GameState) {
     fun countBuilding(type: String) = s.buildings.count { it.type == type }
     fun researched(id: String?) = id == null || s.researchDone.contains(id)
 
+    val redAlertKinds = setOf("escape", "fence", "death", "vdeath", "injury", "bankrupt", "storm", "hunt")
+
     fun alert(kind: String, text: String, x: Int, y: Int, entityId: Int = -1, ttl: Float = 30f) {
         val existing = s.alerts.firstOrNull { it.kind == kind && it.entityId == entityId }
         if (existing != null) { existing.ttl = ttl; return }
+        if (kind in redAlertKinds) sfx("alert")
         if (s.alerts.size >= 6) s.alerts.removeAt(0)
         s.alerts.add(Alert(kind, text, x, y, entityId, ttl))
     }
@@ -88,6 +94,17 @@ class World(var s: GameState) {
 
         for (a in s.alerts) a.ttl -= dt
         s.alerts.removeAll { it.ttl <= 0f }
+        // cadáveres: desaparecen con el tiempo; los carnívoros del recinto se los comen antes
+        if (s.corpses.isNotEmpty()) {
+            val it = s.corpses.iterator()
+            while (it.hasNext()) {
+                val c = it.next()
+                c.timer -= dt
+                val region = grid.regionAt(floor(c.x).toInt(), floor(c.y).toInt())
+                if (region > 0) for (d in s.dinos) if (d.region == region && d.def.diet == Diet.CARNIVORE && d.food < 90f && kotlin.math.abs(d.x - c.x) + kotlin.math.abs(d.y - c.y) < 2.5f) { d.food = 100f; c.timer = min(c.timer, 4f) }
+                if (c.timer <= 0f) it.remove()
+            }
+        }
         if (dartCooldown > 0f) dartCooldown -= dt
 
         secondAcc += dt
@@ -172,12 +189,20 @@ class World(var s: GameState) {
         if (s.dinos.isEmpty()) stars = 0f
         s.stars = stars
 
+        challengeDef?.let { ch ->
+            if (!s.challengeDone && stars >= ch.starsRequired) {
+                s.challengeDone = true
+                s.amberEarned += ch.reward; amberFlash += ch.reward
+                say("¡Reto superado: ${ch.name}! +${ch.reward} Ámbar")
+                sfx("chime")
+            }
+        }
         val fullStars = floor(stars).toInt()
         if (fullStars > s.amberStarsAwarded) {
             val gained = (fullStars - s.amberStarsAwarded) * 15
             s.amberStarsAwarded = fullStars
             s.amberEarned += gained; amberFlash += gained
-            say("¡$fullStars estrellas! +$gained Ámbar")
+            say("¡$fullStars estrellas! +$gained Ámbar"); sfx("chime")
         }
         if (stars >= 5f) {
             s.fiveStarTimer += 1f
@@ -209,7 +234,7 @@ class World(var s: GameState) {
                 "G4" -> s.sitesUnlocked.add("costa_de_sal")
                 "B2" -> grid.rebuildRegions()
             }
-            say("Investigación completada: ${def.name}")
+            say("Investigación completada: ${def.name}"); sfx("chime")
         }
     }
 
@@ -286,7 +311,7 @@ class World(var s: GameState) {
                 }
                 while (s.fossilLog.size > 12) s.fossilLog.removeAt(s.fossilLog.size - 1)
                 msg += parts.joinToString(", ")
-                say(msg)
+                say(msg); sfx("chime")
             }
         }
     }
@@ -303,6 +328,7 @@ class World(var s: GameState) {
         val lab = s.buildings.firstOrNull { it.type == "lab" } ?: return Result.fail("Construye un Laboratorio")
         if (!lab.powered) return Result.fail("El Laboratorio no tiene energía")
         val sp = GameData.species(species)
+        if (s.challenge == "no_carnivores" && sp.diet == Diet.CARNIVORE) return Result.fail("Reto activo: sin carnívoros")
         if ((s.dna[species] ?: 0) < 50) return Result.fail("ADN insuficiente (mínimo 50 %)")
         if (s.incubations.size >= maxIncubations()) return Result.fail("Incubadoras ocupadas")
         if (!canAfford(sp.cost)) return Result.fail("Dinero insuficiente")
@@ -348,7 +374,7 @@ class World(var s: GameState) {
                 if (rnd.nextInt(100) < v) {
                     val d = spawnDino(inc.species, inc.region, inc.genes)
                     if (d != null) {
-                        say("¡${sp.name} incubado con éxito!")
+                        say("¡${sp.name} incubado con éxito!"); sfx("roar:${sp.size.name}")
                         if (!s.cloned.contains(inc.species)) { s.cloned.add(inc.species); s.amberEarned += 10; amberFlash += 10 }
                     } else say("Incubación fallida: el recinto ya no existe")
                 } else say("Incubación fallida (${sp.name}). Viabilidad $v %")
@@ -416,6 +442,7 @@ class World(var s: GameState) {
         var roll = rnd.nextInt(total)
         var chosen = options[0].first
         for ((t, w) in options) { if (roll < w) { chosen = t; break }; roll -= w }
+        if (s.challenge == "storms") chosen = EventType.STORM
         s.eventType = chosen
         s.eventWarn = when (chosen) { EventType.STORM -> 20f; EventType.ESCAPE -> 15f; else -> 10f }
         s.eventText = when (chosen) {
@@ -440,6 +467,7 @@ class World(var s: GameState) {
                 s.eventTimer = when (def.stormLevel) { 1 -> 60f; 2 -> 90f; else -> 120f }
                 s.eventText = "¡Tormenta!"
                 stormAcc = 0f
+                sfx("storm")
                 alert("storm", "¡Tormenta! Las vallas sufren daños", -1, -1, -5, s.eventTimer)
             }
             EventType.DISEASE -> {
@@ -475,7 +503,7 @@ class World(var s: GameState) {
     private fun endEvent(msg: String?) {
         s.eventType = EventType.NONE
         s.eventText = ""
-        s.nextEvent = def.eventMin + rnd.nextFloat() * (def.eventMax - def.eventMin)
+        s.nextEvent = if (s.challenge == "storms") 60f + rnd.nextFloat() * 30f else def.eventMin + rnd.nextFloat() * (def.eventMax - def.eventMin)
         if (msg != null) say(msg)
     }
 
@@ -519,6 +547,7 @@ class World(var s: GameState) {
         spendCapital(def.cost.toFloat())
         val b = Building(s.newId(), defId, x, y, stock = def.stock)
         s.buildings.add(b)
+        sfx("place")
         grid.rebuildBuildings(); grid.rebuildPower(); grid.rebuildRegions()
         dirty = true
         return Result.OK
@@ -527,6 +556,7 @@ class World(var s: GameState) {
     fun demolishBuilding(b: Building): Result {
         if (b.type == "entrance") return Result.fail("La entrada no se puede demoler")
         s.buildings.remove(b)
+        sfx("demolish")
         earn(0f); s.money += b.def.cost * GameData.DEMOLISH_REFUND
         // visitantes que la usaban
         for (v in s.visitors) if (v.targetBuilding == b.id) { v.targetBuilding = -1; v.state = VisitorState.WANDER; v.path.clear() }
@@ -592,7 +622,7 @@ class World(var s: GameState) {
         for (x in ax..bx) { tryPlace(EdgeRef(true, x, ay)); tryPlace(EdgeRef(true, x, by + 1)) }
         for (y in ay..by) { tryPlace(EdgeRef(false, ax, y)); tryPlace(EdgeRef(false, bx + 1, y)) }
         lastFenceFail = fails.maxByOrNull { it.value }?.let { "${it.value} tramos: ${it.key}" } ?: ""
-        if (placed > 0) { grid.rebuildRegions(); dirty = true }
+        if (placed > 0) { grid.rebuildRegions(); dirty = true; sfx("place") }
         return placed
     }
 
@@ -658,6 +688,7 @@ class World(var s: GameState) {
         val r = canPlacePath(x, y); if (!r.ok) return r
         val water = s.terrainAt(x, y) == Terrain.WATER
         spendCapital(if (water) 150f else 20f)
+        sfx("place")
         s.terrain[s.idx(x, y)] = if (water) Terrain.BRIDGE else Terrain.PATH
         dirty = true
         return Result.OK
@@ -713,6 +744,7 @@ class World(var s: GameState) {
         if (d.sleep > 0f) return Result.fail("Ya está dormido")
         dartCooldown = 8f
         d.dartHits++
+        sfx("dart")
         if (d.dartHits >= d.def.darts) {
             d.dartHits = 0
             d.sleep = 60f
@@ -820,6 +852,7 @@ class World(var s: GameState) {
             placeBuilding("water_trough", px + pen - 1, py + pen - 1)
             if (sp.requiresWaterTiles > 0) for (k in 0 until sp.requiresWaterTiles) s.terrain[s.idx(px + 1 + k, py + pen - 1)] = Terrain.WATER
             grid.rebuildRegions()
+            s.dna[sp.id] = 100; s.cloned.add(sp.id)
             repeat(sp.groupMin.coerceIn(1, 3)) { if (spawnDino(sp.id, region) != null) count++ }
         }
         // fila de todos los edificios junto a un camino, para revisar sus modelos

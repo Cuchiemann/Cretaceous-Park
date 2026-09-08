@@ -9,10 +9,23 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.momentadesunt.cretaceouspark.core.*
 import com.momentadesunt.cretaceouspark.render.GameView
+import com.momentadesunt.cretaceouspark.audio.SoundEngine
 
 class GameViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("meta", Context.MODE_PRIVATE)
     private val dir = app.filesDir
+    val audio = SoundEngine(app).also {
+        it.sfxOn = prefs.getBoolean("sfx", true); it.musicOn = prefs.getBoolean("music", true); it.vibrateOn = prefs.getBoolean("vibrate", true)
+    }
+    fun setAudio(sfx: Boolean? = null, music: Boolean? = null, vibrate: Boolean? = null) {
+        val e = prefs.edit()
+        if (sfx != null) { audio.sfxOn = sfx; e.putBoolean("sfx", sfx) }
+        if (music != null) { audio.musicOn = music; e.putBoolean("music", music) }
+        if (vibrate != null) { audio.vibrateOn = vibrate; e.putBoolean("vibrate", vibrate) }
+        e.apply(); frame++
+    }
+    fun challengeDone(island: String, id: String) = prefs.getBoolean("ch_${island}_$id", false)
+    var pendingChallenge by mutableStateOf<String?>(null)
 
     var world by mutableStateOf<World?>(null)
     var frame by mutableIntStateOf(0)
@@ -72,10 +85,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------ ciclo de partida
-    fun newGame(islandId: String) {
+    fun newGame(islandId: String, challenge: String? = pendingChallenge) {
         val def = GameData.islandById.getValue(islandId)
         val s = IslandGen.generate(def, System.currentTimeMillis())
         applyMeta(s)
+        if (!def.sandbox && challenge != null) {
+            s.challenge = challenge
+            if (challenge == "tight_budget") s.money *= 0.5
+        }
+        pendingChallenge = null
         s.tutorialActive = def.id == "brote"
         if (def.sandbox) {
             // Isla Libre: todo desbloqueado desde el principio
@@ -85,8 +103,16 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         startWorld(World(s))
     }
 
+    var menuNotice by mutableStateOf<String?>(null)
+
     fun continueGame(islandId: String): Boolean {
-        val s = Save.read(dir, islandId) ?: return false
+        val s = Save.read(dir, islandId)
+        if (s == null) {
+            Save.delete(dir, islandId)
+            menuNotice = "La partida guardada de ${GameData.islandById[islandId]?.name ?: islandId} estaba dañada y se ha descartado."
+            frame++
+            return false
+        }
         startWorld(World(s))
         return true
     }
@@ -94,6 +120,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private fun startWorld(w: World) {
         world = w
         w.afterLoad()
+        w.soundSink = { audio.event(it) }
+        audio.startMusic()
         tool = Tool.None; category = null; selection = null; ghost = null; overlay = null
         screen = Screen.GAME
         lastIsland = w.s.island
@@ -111,6 +139,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val e = prefs.edit()
         val best = bestStars(w.s.island)
         if (w.s.stars > best) e.putFloat("stars_${w.s.island}", w.s.stars)
+        if (w.s.challengeDone) w.s.challenge?.let { e.putBoolean("ch_${w.s.island}_$it", true) }
         if (w.s.amberEarned > w.s.amberBanked) {
             val gained = w.s.amberEarned - w.s.amberBanked
             amber += gained
@@ -138,6 +167,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun onFrame() {
         frame++
         val w = world ?: return
+        audio.tense = w.stormActive || w.s.dinos.any { it.state == DinoState.ESCAPED } || w.s.alerts.any { it.kind in w.redAlertKinds }
         if (w.s.tutorialActive && w.s.tutorialStep != lastTutorialStep) {
             lastTutorialStep = w.s.tutorialStep
             w.currentTutorialStep()?.category?.let { if (overlay == null) { category = it; buildOpen = true } }
@@ -149,6 +179,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun message(msg: String) { uiMessage = msg; uiMessageTime = System.currentTimeMillis() }
+    fun ownsSkin(species: String) = owns("skin_$species")
 
     fun select(sel: Selection?) {
         selection = sel
@@ -192,5 +223,5 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun selectedBuilding(): Building? = (selection as? Selection.BuildingSel)?.let { s -> world?.s?.buildings?.firstOrNull { it.id == s.id } }
     fun selectedEdge(): EdgeRef? = (selection as? Selection.EdgeSel)?.edge
 
-    fun act(r: Result) { if (!r.ok) message(r.reason) }
+    fun act(r: Result) { if (!r.ok) { message(r.reason); audio.event("error") } }
 }

@@ -77,6 +77,9 @@ class Incubation(val species: String, val region: Int, var remaining: Float, val
 class Alert(val kind: String, val text: String, val x: Int, val y: Int, val entityId: Int = -1, var ttl: Float = 30f)
 
 @Serializable
+class Corpse(val id: Int, val species: String, val x: Float, val y: Float, val facing: Int, var timer: Float)
+
+@Serializable
 class FossilLog(val species: String, val quality: String, val dna: Int, val sold: Int)
 
 @Serializable
@@ -135,7 +138,10 @@ class GameState(
     var ferryTimer: Float = 0f,
     var autosave: Float = 0f,
     var tutorialActive: Boolean = false,
-    var tutorialStep: Int = 0
+    var tutorialStep: Int = 0,
+    var challenge: String? = null,
+    var challengeDone: Boolean = false,
+    val corpses: MutableList<Corpse> = mutableListOf()
 ) {
     fun idx(x: Int, y: Int) = y * size + x
     fun inBounds(x: Int, y: Int) = x >= 0 && y >= 0 && x < size && y < size

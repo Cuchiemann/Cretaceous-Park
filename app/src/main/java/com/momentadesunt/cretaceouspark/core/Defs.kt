@@ -116,4 +116,6 @@ object VisitorState {
     const val SLEEP = 6
 }
 
+data class ChallengeDef(val id: String, val name: String, val desc: String, val reward: Int, val starsRequired: Float)
+
 object EventType { const val NONE = 0; const val STORM = 1; const val DISEASE = 2; const val ESCAPE = 3; const val SABOTAGE = 4 }

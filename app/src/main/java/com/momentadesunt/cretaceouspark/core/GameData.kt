@@ -16,11 +16,11 @@ object GameData {
         SpeciesDef("diplodocus", "Diplodocus", Diet.HERBIVORE, Size.L, 55000, 24, 1, 4, 7, 2, 55, Fence.HEAVY, 3, "bosque_petrificado", c("9A8C6B"), c("5E533F")),
         SpeciesDef("compsognathus", "Compsognathus", Diet.CARNIVORE, Size.S, 9000, 3, 4, 12, 3, 1, 8, Fence.LIGHT, 1, "canon_rojo", c("4E9E8F"), c("2C5E55")),
         SpeciesDef("velociraptor", "Velociraptor", Diet.CARNIVORE, Size.S, 20000, 6, 2, 6, 6, 6, 25, Fence.MEDIUM, 1, "estepa_gris", c("B5651D"), c("2E2E2E")),
-        SpeciesDef("dilophosaurus", "Dilophosaurus", Diet.CARNIVORE, Size.M, 24000, 8, 2, 5, 5, 5, 30, Fence.MEDIUM, 2, "estepa_gris", c("7B9E3C"), c("E1B12C")),
+        SpeciesDef("dilophosaurus", "Dilophosaurus", Diet.CARNIVORE, Size.M, 24000, 8, 2, 5, 5, 5, 30, Fence.MEDIUM, 2, "estepa_gris", c("5C4F47"), c("C43A2E")),
         SpeciesDef("ceratosaurus", "Ceratosaurus", Diet.CARNIVORE, Size.M, 32000, 12, 1, 2, 6, 6, 45, Fence.MEDIUM, 2, "costa_de_sal", c("A63D40"), c("4B1D1F")),
         SpeciesDef("carnotaurus", "Carnotaurus", Diet.CARNIVORE, Size.M, 36000, 12, 1, 2, 6, 7, 50, Fence.HEAVY, 2, "bosque_petrificado", c("8E3B46"), c("D4A15A")),
         SpeciesDef("allosaurus", "Allosaurus", Diet.CARNIVORE, Size.L, 55000, 20, 1, 2, 8, 8, 80, Fence.HEAVY, 3, "desierto_blanco", c("B08D57"), c("5A3E1B")),
-        SpeciesDef("spinosaurus", "Spinosaurus", Diet.CARNIVORE, Size.L, 75000, 24, 1, 1, 9, 9, 90, Fence.HEAVY, 3, "desierto_blanco", c("3E7C8F"), c("E0762E"), requiresWaterTiles = 4),
+        SpeciesDef("spinosaurus", "Spinosaurus", Diet.CARNIVORE, Size.L, 75000, 24, 1, 1, 9, 9, 90, Fence.HEAVY, 3, "desierto_blanco", c("8F3D1F"), c("D9A441"), requiresWaterTiles = 4),
         SpeciesDef("tyrannosaurus", "Tyrannosaurus", Diet.CARNIVORE, Size.L, 100000, 24, 1, 1, 10, 10, 120, Fence.HEAVY, 3, "glaciar_norte", c("6B5B4E"), c("2B2320"))
     )
     val speciesById: Map<String, SpeciesDef> = species.associateBy { it.id }
@@ -116,6 +116,14 @@ object GameData {
         IslandDef("libre", "Isla Libre", 126, 5000000, 1f, 15, 5, 10, 8, 300f, 480f, 40, 20, 20, 20, 2, 0f, "Sandbox: dinero casi infinito, sin estrellas.", sandbox = true)
     )
     val islandById = islands.associateBy { it.id }
+
+    // ---- Retos de isla ------------------------------------------------------------------------------------------
+    val challenges: List<ChallengeDef> = listOf(
+        ChallengeDef("no_carnivores", "Sin carnívoros", "No puedes incubar carnívoros. Consigue 4★ solo con herbívoros.", 50, 4f),
+        ChallengeDef("storms", "Tormentas constantes", "Una tormenta cada 60–90 s. Consigue 4★ manteniendo las vallas en pie.", 100, 4f),
+        ChallengeDef("tight_budget", "Presupuesto ajustado", "Empiezas con la mitad del dinero. Consigue 4★.", 75, 4f)
+    )
+    val challengeById = challenges.associateBy { it.id }
 
     // ---- Constantes de simulación ------------------------------------------------------------------------------
     const val MAX_VISITOR_AGENTS = 150

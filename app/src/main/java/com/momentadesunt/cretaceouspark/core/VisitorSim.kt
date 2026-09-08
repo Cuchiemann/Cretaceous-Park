@@ -60,6 +60,10 @@ class VisitorSim(private val w: World) {
                 if (near || (storm && !sheltered && rnd.nextFloat() < 0.02f)) {
                     v.needs[Need.FUN] = max(0f, v.needs[Need.FUN] - 30f)
                     startFlee(v)
+                } else if (viewTick) {
+                    // ver un cadáver: susto, diversión −30 y huida
+                    val c = s.corpses.firstOrNull { abs(it.x - v.x) <= 6f && abs(it.y - v.y) <= 6f && !v.seen.contains("corpse:${it.id}") }
+                    if (c != null) { v.seen.add("corpse:${c.id}"); v.needs[Need.FUN] = max(0f, v.needs[Need.FUN] - 30f); startFlee(v) }
                 }
             }
 

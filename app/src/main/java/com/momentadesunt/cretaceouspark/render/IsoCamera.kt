@@ -3,7 +3,7 @@ package com.momentadesunt.cretaceouspark.render
 import kotlin.math.floor
 
 /** Cámara ortográfica isométrica 2:1 con 4 giros y 3 niveles de zoom. */
-class IsoCamera(var mapSize: Int) {
+class IsoCamera(var mapSize: Int) : ViewMap {
     var rot = 0                 // 0..3
     var zoom = 1                // 0 cerca, 1 medio, 2 lejos
     var fx = mapSize / 2f       // punto del mundo en el centro de pantalla
@@ -13,26 +13,28 @@ class IsoCamera(var mapSize: Int) {
 
     private val tilesAcross = floatArrayOf(11f, 18f, 30f, 52f)
 
-    val tileW: Float get() = screenW / tilesAcross[zoom]
+    var customTilesAcross = 0f   // >0: anula los niveles fijos (vista previa)
+    val tileW: Float get() = screenW / (if (customTilesAcross > 0f) customTilesAcross else tilesAcross[zoom])
     val tileH: Float get() = tileW / 2f
     val zUnit: Float get() = tileH * 1.15f
+    override val zScale: Float get() = 1.15f
 
     fun setViewport(w: Int, h: Int) { screenW = w.toFloat(); screenH = h.toFloat() }
 
     /** Coordenadas de mundo → coordenadas de vista (rotadas alrededor del centro del mapa). */
-    fun toViewX(x: Float, y: Float): Float {
+    override fun toViewX(x: Float, y: Float): Float {
         val c = mapSize / 2f; val dx = x - c; val dy = y - c
         return when (rot) { 0 -> dx; 1 -> -dy; 2 -> -dx; else -> dy } + c
     }
-    fun toViewY(x: Float, y: Float): Float {
+    override fun toViewY(x: Float, y: Float): Float {
         val c = mapSize / 2f; val dx = x - c; val dy = y - c
         return when (rot) { 0 -> dy; 1 -> dx; 2 -> -dy; else -> -dx } + c
     }
-    fun viewToWorldX(vx: Float, vy: Float): Float {
+    override fun viewToWorldX(vx: Float, vy: Float): Float {
         val c = mapSize / 2f; val dx = vx - c; val dy = vy - c
         return when (rot) { 0 -> dx; 1 -> dy; 2 -> -dx; else -> -dy } + c
     }
-    fun viewToWorldY(vx: Float, vy: Float): Float {
+    override fun viewToWorldY(vx: Float, vy: Float): Float {
         val c = mapSize / 2f; val dx = vx - c; val dy = vy - c
         return when (rot) { 0 -> dy; 1 -> -dx; 2 -> -dy; else -> dx } + c
     }

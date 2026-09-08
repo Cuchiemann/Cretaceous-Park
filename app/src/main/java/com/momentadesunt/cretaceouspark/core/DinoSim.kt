@@ -153,9 +153,12 @@ class DinoSim(private val w: World) {
     private fun kill(d: Dino, natural: Boolean) {
         s.dinos.remove(d)
         s.dinoDeaths.add(s.time)
+        s.corpses.add(Corpse(s.newId(), d.species, d.x, d.y, d.facing, if (d.def.size == Size.L) 90f else 45f))
+        w.sfx("roar:${d.def.size.name}")
     }
 
     private fun escape(d: Dino) {
+        w.sfx("roar:${d.def.size.name}")
         d.state = DinoState.ESCAPED
         d.region = 0
         d.targetEdge = -1
@@ -196,6 +199,7 @@ class DinoSim(private val w: World) {
                             val hp = max(0, grid.fenceHp(e) - dmg.toInt())
                             grid.setFenceHp(e, hp)
                             w.dirty = true
+                            w.sfx("hit")
                             if (hp <= 0) { w.alert("fence", "¡Valla rota en ${info.name}!", e.x, e.y, -7, 40f); grid.rebuildRegions() }
                             else w.alert("attack", "${def.name} golpea la valla (${hp} PV)", e.x, e.y, d.id, 6f)
                         }

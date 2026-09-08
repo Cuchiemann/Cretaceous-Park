@@ -349,7 +349,8 @@ El **Ámbar** es la moneda permanente. Se gana solo jugando (sin compras):
 - **Presupuesto extra** (50/100/200): +10 %, +20 %, +30 % de presupuesto inicial.
 - **Pieles** (20): variantes de color de dinosaurios (estético).
 - **Islas** (ver §5.2).
-- **Retos** de isla (modificadores: "sin carnívoros", "tormentas constantes") que dan más Ámbar.
+- **Retos** de isla, elegibles al empezar partida: *Sin carnívoros* (50 Ámbar), *Tormentas constantes* (100), *Presupuesto ajustado* (75). Se superan al alcanzar 4★ con el reto activo; una vez por isla y reto.
+- **Pieles** (20 Ámbar por especie): la piel alternativa queda disponible al incubar sin investigar el gen.
 
 Nada del Ámbar hace el juego trivial: la Isla Corona está diseñada para requerir dominio incluso con todos los desbloqueos.
 
@@ -395,6 +396,9 @@ Español e inglés de salida. Todo el texto en `strings.xml`. Sin texto por deba
 ---
 
 ## 15. Audio
+
+> Implementación actual: todo el audio se **sintetiza en tiempo real** (sin archivos): efectos PCM generados al arrancar y dos temas generativos (pentatónico en calma a 84 bpm, menor con pulso a 126 bpm) mezclados con fundido según haya fugas, tormenta o alertas rojas. Rugidos por tamaño de especie al incubar, escapar o morir; golpes a la valla, dardo, colocación, demolición, error, campanilla de logro y trueno. Tres interruptores en el panel Parque: música, sonidos, vibración.
+
 
 - Música: dos temas de loop suave (día tranquilo, alerta) con crossfade según haya alertas activas. Estilo: marimba/sintetizador ligero, tono lúdico.
 - Efectos: cada especie tiene un rugido corto y "cuadrado". Sonidos de colocación (pop), dinero (tintineo), valla eléctrica (zumbido), tormenta (viento en cubos).

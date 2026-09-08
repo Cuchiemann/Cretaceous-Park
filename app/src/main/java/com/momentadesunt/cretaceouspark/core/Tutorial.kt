@@ -45,7 +45,7 @@ object Tutorial {
             "Construye el Laboratorio junto a un camino y dentro del alcance del Generador (necesita energía).",
             0, Category.CENTERS) { w -> w.s.buildings.any { it.type == "lab" && it.powered } },
         TutorialStep("Tu primer dinosaurio",
-            "Abre la pestaña Dinosaurios (abajo). Cuando una especie llegue al 50 % de ADN, elígela, elige tu recinto e incuba. Si falta ADN, envía más expediciones.",
+            "Abre la pestaña ADN (abajo) y toca una especie con ADN ≥ 50 %. En su ficha elige el recinto y pulsa Incubar. Si falta ADN, envía más expediciones.",
             0) { w -> w.s.dinos.isNotEmpty() },
         TutorialStep("Compañía",
             "Los Gallimimus viven en grupos de 3 o más. Incuba hasta tener tres del mismo tipo en el recinto, o se estresarán.",

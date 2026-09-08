@@ -196,4 +196,38 @@ class TutorialTest {
         w.skipTutorial(); assertNull(w.currentTutorialStep())
         w.restartTutorial(); assertEquals(0, s.tutorialStep)
     }
+
+    @Test
+    fun challengesAndCorpses() {
+        val s = IslandGen.generate(GameData.islandById.getValue("brote"), 5L)
+        s.challenge = "no_carnivores"
+        val w = World(s)
+        for (y in 3..8) for (x in 3..8) s.terrain[s.idx(x, y)] = Terrain.GRASS
+        w.grid.rebuildRegions()
+        w.fenceRect(3, 3, 8, 8, Fence.LIGHT)
+        val r = w.enclosures().first()
+        w.placeBuilding("lab", 12, 12); w.placeBuilding("generator", 15, 12)
+        s.dna["velociraptor"] = 100; s.dna["gallimimus"] = 100
+        assertFalse("el reto bloquea carnívoros", w.canIncubate("velociraptor", r.id).ok)
+        // un dino que muere deja cadáver
+        val d = w.spawnDino("gallimimus", r.id)!!
+        d.food = 0f; d.water = 0f; d.starve = 149f
+        repeat(15) { d.food = 0f; d.water = 0f; w.tick(0.1f) }
+        assertTrue("cadáver creado", s.corpses.isNotEmpty())
+        assertTrue("dino retirado", s.dinos.isEmpty())
+        // el cadáver desaparece con el tiempo
+        while (s.corpses.isNotEmpty() && s.time < 200f) w.tick(0.1f)
+        assertTrue("cadáver retirado", s.corpses.isEmpty())
+        // sonidos emitidos
+        var sounds = 0
+        w.soundSink = { sounds++ }
+        s.terrain[s.idx(20, 20)] = Terrain.GRASS
+        assertTrue(w.placePath(20, 20).ok)
+        assertTrue("sonido de colocación emitido", sounds >= 1)
+        // reto tormentas: el siguiente evento es tormenta
+        s.challenge = "storms"
+        s.nextEvent = 0.1f; s.eventType = EventType.NONE
+        w.tick(0.1f); w.tick(0.1f)
+        assertEquals(EventType.STORM, s.eventType)
+    }
 }

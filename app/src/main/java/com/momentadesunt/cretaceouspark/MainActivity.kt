@@ -23,6 +23,12 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         vm.save(async = false)
+        vm.audio.appActive = false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        vm.audio.appActive = true
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

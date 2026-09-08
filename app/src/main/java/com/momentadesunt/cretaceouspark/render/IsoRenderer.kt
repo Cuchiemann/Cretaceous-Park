@@ -17,17 +17,9 @@ class IsoRenderer(val cam: IsoCamera) {
     private val linePaint = Paint().apply { style = Paint.Style.STROKE; isAntiAlias = true; strokeWidth = 3f }
     private val path = Path()
 
-    private class Box(val x: Float, val y: Float, val z: Float, val w: Float, val d: Float, val h: Float, val color: Int, val alpha: Int = 255) {
-        // límites en espacio de vista (se rellenan en prepare)
-        var vx0 = 0f; var vx1 = 0f; var vy0 = 0f; var vy1 = 0f
-        var key = 0f
-        var col = 0f
-        var author = 0
-    }
-    private class Obj(val key: Float) { val boxes = ArrayList<Box>(6) }
-
-    private val objs = ArrayList<Obj>(1024)
-    private val flat = ArrayList<Box>(4096)
+    private val objs = ArrayList<BoxGroup>(1024)
+    private val flat = ArrayList<RBox>(4096)
+    private val sorter = BoxSorter(cam)
     private val groundPaths = HashMap<Int, Path>()
 
     // colores
@@ -77,87 +69,27 @@ class IsoRenderer(val cam: IsoCamera) {
         drawGround(c, s, w)
         collectObjects(w, time)
         lastObjCount = objs.size
-        sortBoxes()
+        sorter.sort(objs, flat)
         for (b in flat) drawBox(c, b)
         drawOverlays(c, w)
         if (w.stormActive) drawStorm(c, time)
     }
 
-    /**
-     * Orden de pintor determinista por columnas de tile (en espacio de vista):
-     *  1. cada caja se parte en trozos que caen dentro de una sola columna 1×1 de vista;
-     *  2. las columnas se pintan de atrás hacia delante (suma de coordenadas de vista);
-     *  3. dentro de una columna, por altura de la base, luego por cercanía a la cámara y, por último, por orden de autoría.
-     * No depende de qué otras cajas haya cerca, así que el resultado es idéntico entre fotogramas.
-     */
-    private fun sortBoxes() {
-        flat.clear()
-        var author = 0
-        for (o in objs) for (b0 in o.boxes) {
-            author++
-            val vxA = cam.toViewX(b0.x, b0.y); val vyA = cam.toViewY(b0.x, b0.y)
-            val vxB = cam.toViewX(b0.x + b0.w, b0.y + b0.d); val vyB = cam.toViewY(b0.x + b0.w, b0.y + b0.d)
-            val vx0 = min(vxA, vxB); val vx1 = max(vxA, vxB); val vy0 = min(vyA, vyB); val vy1 = max(vyA, vyB)
-            if (b0.alpha < 255 || (vx1 - vx0 <= 1.0001f && vy1 - vy0 <= 1.0001f && floor(vx0 + 0.02f) == floor(vx1 - 0.02f) && floor(vy0 + 0.02f) == floor(vy1 - 0.02f))) {
-                setBounds(b0, vx0, vx1, vy0, vy1, author); flat.add(b0); continue
-            }
-            // partir en columnas de vista
-            val cx0 = floor(vx0 + 0.001f).toInt(); val cx1 = kotlin.math.ceil(vx1 - 0.001f).toInt() - 1
-            val cy0 = floor(vy0 + 0.001f).toInt(); val cy1 = kotlin.math.ceil(vy1 - 0.001f).toInt() - 1
-            for (cx in cx0..max(cx0, cx1)) for (cy in cy0..max(cy0, cy1)) {
-                val px0 = max(vx0, cx.toFloat()); val px1 = min(vx1, cx + 1f)
-                val py0 = max(vy0, cy.toFloat()); val py1 = min(vy1, cy + 1f)
-                if (px1 - px0 < 1e-4f || py1 - py0 < 1e-4f) continue
-                // volver a mundo para dibujar
-                val wxA = cam.viewToWorldX(px0, py0); val wyA = cam.viewToWorldY(px0, py0)
-                val wxB = cam.viewToWorldX(px1, py1); val wyB = cam.viewToWorldY(px1, py1)
-                val b = Box(min(wxA, wxB), min(wyA, wyB), b0.z, abs(wxB - wxA), abs(wyB - wyA), b0.h, b0.color, b0.alpha)
-                setBounds(b, px0, px1, py0, py1, author)
-                flat.add(b)
-            }
-        }
-        flat.sortWith(compareBy<Box>({ it.col }, { it.z }, { it.vx0 + it.vy0 }, { it.author }))
-        // Dentro de cada columna: una pieza que termina exactamente donde empieza otra (en x, y o altura)
-        // va detras de ella. Asi el ojo del lado oculto queda tapado por la cabeza. Grupos pequenos -> O(k^2).
-        var start = 0
-        while (start < flat.size) {
-            var end = start + 1
-            while (end < flat.size && flat[end].col == flat[start].col) end++
-            if (end - start > 1) refineGroup(start, end)
-            start = end
-        }
-    }
-
-    private fun refineGroup(from: Int, to: Int) {
-        val k = to - from
-        repeat(k) {
-            var moved = false
-            for (j in from + 1 until to) {
-                val b = flat[j]
-                var target = -1
-                for (i in from until j) { val a = flat[i]; if (behind(b, a) && !behind(a, b)) { target = i; break } }
-                if (target >= 0) {
-                    for (m in j downTo target + 1) flat[m] = flat[m - 1]
-                    flat[target] = b
-                    moved = true
-                }
-            }
-            if (!moved) return
-        }
-    }
-
-    /** a queda detras de b si hay separacion (o contacto) en alguno de los tres ejes. */
-    private fun behind(a: Box, b: Box): Boolean {
-        val eps = 0.003f
-        return a.vx1 <= b.vx0 + eps || a.vy1 <= b.vy0 + eps || a.z + a.h <= b.z + eps
-    }
-
-    private fun setBounds(b: Box, vx0: Float, vx1: Float, vy0: Float, vy1: Float, author: Int) {
-        b.vx0 = vx0; b.vx1 = vx1; b.vy0 = vy0; b.vy1 = vy1
-        // columna: el tile de vista que contiene el centro; los bordes exactos (vallas) caen en el tile de delante
-        val cx = floor((vx0 + vx1) / 2f + 1e-3f); val cy = floor((vy0 + vy1) / 2f + 1e-3f)
-        b.col = cx + cy
-        b.author = author
+    /** Vista previa: un dino sobre 3×3 tiles de hierba, sin mundo. */
+    fun drawPreview(c: Canvas, d: Dino, time: Float) {
+        cam.prepare()
+        for (p in groundPaths.values) p.rewind()
+        for (y in 1..4) for (x in 1..4) addTop(groundPath(if ((x + y) and 1 == 0) cGrass else cGrass2), x.toFloat(), y.toFloat(), 0f, 1f, 1f)
+        // borde de la parcela
+        val cliffL = shade(cCliff, 0.85f); val cliffR = shade(cCliff, 0.7f)
+        addQuad(groundPath(cliffL), cam.worldSx(1f, 5f), cam.worldSy(1f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, -0.3f), cam.worldSx(1f, 5f), cam.worldSy(1f, 5f, -0.3f))
+        addQuad(groundPath(cliffR), cam.worldSx(5f, 1f), cam.worldSy(5f, 1f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, -0.3f), cam.worldSx(5f, 1f), cam.worldSy(5f, 1f, -0.3f))
+        for ((col, p) in groundPaths) { if (!p.isEmpty) { paint.color = col; c.drawPath(p, paint) } }
+        objs.clear()
+        selectedDino = -1
+        addDino(d, time)
+        sorter.sort(objs, flat)
+        for (b in flat) drawBox(c, b)
     }
 
     private fun visibleTileBounds(n: Int): IntArray {
@@ -264,7 +196,7 @@ class IsoRenderer(val cam: IsoCamera) {
     }
 
     // ------------------------------------------------------------------ cajas
-    private fun drawBox(c: Canvas, b: Box) {
+    private fun drawBox(c: Canvas, b: RBox) {
         val vx0 = b.vx0; val vx1 = b.vx1; val vy0 = b.vy0; val vy1 = b.vy1
         val zt = b.z + b.h
         paint.alpha = 255
@@ -287,10 +219,9 @@ class IsoRenderer(val cam: IsoCamera) {
         paint.alpha = 255
     }
 
-    private fun obj(x: Float, y: Float, w: Float = 1f, d: Float = 1f, zBias: Float = 0f): Obj {
-        val vx = max(cam.toViewX(x, y), cam.toViewX(x + w, y + d))
-        val vy = max(cam.toViewY(x, y), cam.toViewY(x + w, y + d))
-        val o = Obj(vx + vy + zBias)
+    @Suppress("UNUSED_PARAMETER")
+    private fun obj(x: Float, y: Float, w: Float = 1f, d: Float = 1f, zBias: Float = 0f): BoxGroup {
+        val o = BoxGroup()
         objs.add(o)
         return o
     }
@@ -314,13 +245,13 @@ class IsoRenderer(val cam: IsoCamera) {
             if (t == Terrain.FOREST) {
                 val h = 0.9f + ((x * 7 + y * 13) % 5) * 0.12f
                 val o = obj(x.toFloat(), y.toFloat())
-                o.boxes.add(Box(x + 0.4f, y + 0.4f, 0f, 0.2f, 0.2f, h * 0.45f, cTrunk))
-                o.boxes.add(Box(x + 0.15f, y + 0.15f, h * 0.45f, 0.7f, 0.7f, h * 0.55f, if ((x + y) % 3 == 0) cLeaf2 else cLeaf))
-                o.boxes.add(Box(x + 0.3f, y + 0.3f, h, 0.4f, 0.4f, 0.25f, cLeaf2))
+                o.add(RBox(x + 0.4f, y + 0.4f, 0f, 0.2f, 0.2f, h * 0.45f, cTrunk))
+                o.add(RBox(x + 0.15f, y + 0.15f, h * 0.45f, 0.7f, 0.7f, h * 0.55f, if ((x + y) % 3 == 0) cLeaf2 else cLeaf))
+                o.add(RBox(x + 0.3f, y + 0.3f, h, 0.4f, 0.4f, 0.25f, cLeaf2))
             } else if (t == Terrain.ROCK) {
                 val o = obj(x.toFloat(), y.toFloat())
-                o.boxes.add(Box(x + 0.1f, y + 0.2f, 0f, 0.6f, 0.6f, 0.5f, cRock))
-                o.boxes.add(Box(x + 0.5f, y + 0.55f, 0f, 0.4f, 0.35f, 0.3f, shade(cRock, 0.9f)))
+                o.add(RBox(x + 0.1f, y + 0.2f, 0f, 0.6f, 0.6f, 0.5f, cRock))
+                o.add(RBox(x + 0.5f, y + 0.55f, 0f, 0.4f, 0.35f, 0.3f, shade(cRock, 0.9f)))
             }
         }
         // vallas
@@ -337,6 +268,16 @@ class IsoRenderer(val cam: IsoCamera) {
             if (!onScreen(bd.cx, bd.cy, 4f)) continue
             addBuilding(bd, i == selectedBuildingIndex(s), time)
         }
+        // cadáveres
+        for (c in s.corpses) if (onScreen(c.x, c.y, 3f)) {
+            val def = GameData.species(c.species)
+            val scale = DinoModels.scaleOf(def.size)
+            val o = obj(c.x - 0.6f * scale, c.y - 0.6f * scale, 1.2f * scale, 1.2f * scale, 0.2f)
+            DinoModels.buildCorpse(c.x, c.y, c.facing, def) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z, w, dd, h, color)) }
+            // moscas
+            val fz = 0.5f * scale + 0.1f * sin(time * 7f + c.id)
+            o.add(RBox(c.x + 0.2f * sin(time * 3f + c.id), c.y + 0.2f * kotlin.math.cos(time * 2.3f + c.id), fz, 0.06f, 0.06f, 0.06f, 0xFF2B2F33.toInt()))
+        }
         // dinos
         for (d in s.dinos) if (onScreen(d.x, d.y, 4f)) addDino(d, time)
         // visitantes
@@ -344,7 +285,7 @@ class IsoRenderer(val cam: IsoCamera) {
         // fantasma
         ghost?.let { g ->
             val o = obj(g.x.toFloat(), g.y.toFloat(), g.w.toFloat(), g.h.toFloat(), 0.5f)
-            o.boxes.add(Box(g.x.toFloat(), g.y.toFloat(), 0f, g.w.toFloat(), g.h.toFloat(), g.height, if (g.ok) 0xFF7BE07B.toInt() else 0xFFE06060.toInt(), 150))
+            o.add(RBox(g.x.toFloat(), g.y.toFloat(), 0f, g.w.toFloat(), g.h.toFloat(), g.height, if (g.ok) 0xFF7BE07B.toInt() else 0xFFE06060.toInt(), 150))
         }
     }
 
@@ -365,16 +306,16 @@ class IsoRenderer(val cam: IsoCamera) {
         if (broken || open) {
             // solo postes
             val hh = if (open) height * 0.6f else height * 0.5f
-            if (e.h) { o.boxes.add(Box(x, y - th / 2f, 0f, th, th, hh, col)); o.boxes.add(Box(x + 1f - th, y - th / 2f, 0f, th, th, hh, col)) }
-            else { o.boxes.add(Box(x - th / 2f, y, 0f, th, th, hh, col)); o.boxes.add(Box(x - th / 2f, y + 1f - th, 0f, th, th, hh, col)) }
+            if (e.h) { o.add(RBox(x, y - th / 2f, 0f, th, th, hh, col)); o.add(RBox(x + 1f - th, y - th / 2f, 0f, th, th, hh, col)) }
+            else { o.add(RBox(x - th / 2f, y, 0f, th, th, hh, col)); o.add(RBox(x - th / 2f, y + 1f - th, 0f, th, th, hh, col)) }
         } else {
-            if (e.h) o.boxes.add(Box(x, y - th / 2f, 0f, 1f, th, height, col)) else o.boxes.add(Box(x - th / 2f, y, 0f, th, 1f, height, col))
+            if (e.h) o.add(RBox(x, y - th / 2f, 0f, 1f, th, height, col)) else o.add(RBox(x - th / 2f, y, 0f, th, 1f, height, col))
             if (type == Fence.HEAVY || type == Fence.MEDIUM) {
                 // travesaño superior más oscuro
-                if (e.h) o.boxes.add(Box(x, y - th, height, 1f, th * 2f, 0.06f, shade(col, 0.8f))) else o.boxes.add(Box(x - th, y, height, th * 2f, 1f, 0.06f, shade(col, 0.8f)))
+                if (e.h) o.add(RBox(x, y - th, height, 1f, th * 2f, 0.06f, shade(col, 0.8f))) else o.add(RBox(x - th, y, height, th * 2f, 1f, 0.06f, shade(col, 0.8f)))
             }
         }
-        if (selectedEdge == e) o.boxes.add(Box(if (e.h) x else x - 0.2f, if (e.h) y - 0.2f else y, height + 0.15f, if (e.h) 1f else 0.4f, if (e.h) 0.4f else 1f, 0.05f, Color.WHITE, 200))
+        if (selectedEdge == e) o.add(RBox(if (e.h) x else x - 0.2f, if (e.h) y - 0.2f else y, height + 0.15f, if (e.h) 1f else 0.4f, if (e.h) 0.4f else 1f, 0.05f, Color.WHITE, 200))
     }
 
     private val cWhite = 0xFFF4F1EA.toInt()
@@ -393,7 +334,7 @@ class IsoRenderer(val cam: IsoCamera) {
         val unpowered = def.needsPower && !b.powered
         if (unpowered) col = shade(col, 0.6f)
         val H = def.height
-        fun box(bx: Float, by: Float, bz: Float, bw: Float, bd: Float, bh: Float, c: Int, a: Int = 255) = o.boxes.add(Box(bx, by, bz, bw, bd, bh, c, a))
+        fun box(bx: Float, by: Float, bz: Float, bw: Float, bd: Float, bh: Float, c: Int, a: Int = 255) = o.add(RBox(bx, by, bz, bw, bd, bh, c, a))
         when (def.id) {
             "feeder_herb", "feeder_carn" -> {
                 box(x + 0.15f, y + 0.15f, 0f, 0.7f, 0.7f, 0.25f, shade(col, 0.8f))
@@ -526,30 +467,36 @@ class IsoRenderer(val cam: IsoCamera) {
         val def = d.def
         val scale = DinoModels.scaleOf(def.size)
         val o = obj(d.x - 0.6f * scale, d.y - 0.6f * scale, 1.2f * scale, 1.2f * scale, 0.3f)
-        val top = DinoModels.build(d) { x, y, z, w, dd, h, color -> o.boxes.add(Box(x, y, z, w, dd, h, color)) }
+        val top = DinoModels.build(d) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z, w, dd, h, color)) }
         // burbujas de estado
         val cx = d.x; val cy = d.y
         val bz = top + 0.3f + 0.08f * sin(time * 4f)
         val bs = 0.3f
         when {
-            d.state == DinoState.ESCAPED -> if ((time * 4f).toInt() % 2 == 0) o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
-            d.sleep > 0f -> o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFF9AA5B1.toInt()))
-            d.sick -> o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFF7BE07B.toInt()))
-            d.stress >= 75f -> if ((time * 4f).toInt() % 2 == 0) o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
-            d.stress >= 40f -> o.boxes.add(Box(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFF2C14E.toInt()))
+            d.state == DinoState.ESCAPED -> if ((time * 4f).toInt() % 2 == 0) o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
+            d.sleep > 0f -> o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFF9AA5B1.toInt()))
+            d.sick -> o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFF7BE07B.toInt()))
+            d.stress >= 75f -> if ((time * 4f).toInt() % 2 == 0) o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFD9483B.toInt()))
+            d.stress >= 40f -> o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFF2C14E.toInt()))
         }
         // sombra plana y anillo de selección
-        o.boxes.add(0, Box(cx - 0.45f * scale, cy - 0.35f * scale, 0.005f, 0.9f * scale, 0.7f * scale, 0f, 0xFF000000.toInt(), 55))
-        if (d.id == selectedDino) o.boxes.add(Box(cx - 0.7f * scale, cy - 0.7f * scale, 0.01f, 1.4f * scale, 1.4f * scale, 0f, Color.WHITE, 130))
+        o.addRaw(RBox(cx - 0.45f * scale, cy - 0.35f * scale, 0.005f, 0.9f * scale, 0.7f * scale, 0f, 0xFF000000.toInt(), 55))
+        if (d.id == selectedDino) o.add(RBox(cx - 0.7f * scale, cy - 0.7f * scale, 0.01f, 1.4f * scale, 1.4f * scale, 0f, Color.WHITE, 130))
     }
 
     private fun addVisitor(v: Visitor) {
-        val hop = if (v.path.isNotEmpty()) abs(sin(v.hop)) * 0.08f else 0f
+        val hop = if (v.path.isNotEmpty()) abs(sin(v.hop)) * (if (v.state == VisitorState.FLEE) 0.16f else 0.08f) else 0f
         val o = obj(v.x - 0.15f, v.y - 0.15f, 0.3f, 0.3f, 0.2f)
-        o.boxes.add(Box(v.x - 0.09f, v.y - 0.09f, hop, 0.18f, 0.18f, 0.18f, cLegs))
-        o.boxes.add(Box(v.x - 0.12f, v.y - 0.12f, 0.18f + hop, 0.24f, 0.24f, 0.28f, v.color))
-        o.boxes.add(Box(v.x - 0.1f, v.y - 0.1f, 0.46f + hop, 0.2f, 0.2f, 0.2f, cSkin))
-        if (v.comfort() < 40f) o.boxes.add(Box(v.x - 0.08f, v.y - 0.08f, 0.85f, 0.16f, 0.16f, 0.16f, 0xFF9AA5B1.toInt()))
+        o.add(RBox(v.x - 0.09f, v.y - 0.09f, hop, 0.18f, 0.18f, 0.18f, cLegs))
+        o.add(RBox(v.x - 0.12f, v.y - 0.12f, 0.18f + hop, 0.24f, 0.24f, 0.28f, v.color))
+        o.add(RBox(v.x - 0.1f, v.y - 0.1f, 0.46f + hop, 0.2f, 0.2f, 0.2f, cSkin))
+        if (v.state == VisitorState.FLEE) {
+            // huida legible: signo de exclamación rojo sobre la cabeza y brazos en alto
+            o.add(RBox(v.x - 0.05f, v.y - 0.05f, 0.9f + hop, 0.1f, 0.1f, 0.22f, 0xFFE85A4D.toInt()))
+            o.add(RBox(v.x - 0.05f, v.y - 0.05f, 0.8f + hop, 0.1f, 0.1f, 0.06f, 0xFFE85A4D.toInt()))
+            o.add(RBox(v.x - 0.2f, v.y - 0.04f, 0.4f + hop, 0.08f, 0.08f, 0.3f, cSkin))
+            o.add(RBox(v.x + 0.12f, v.y - 0.04f, 0.4f + hop, 0.08f, 0.08f, 0.3f, cSkin))
+        } else if (v.comfort() < 40f) o.add(RBox(v.x - 0.08f, v.y - 0.08f, 0.85f, 0.16f, 0.16f, 0.16f, 0xFF9AA5B1.toInt()))
     }
 
     // ------------------------------------------------------------------ superposiciones
@@ -572,6 +519,9 @@ class IsoRenderer(val cam: IsoCamera) {
     private fun drawStorm(c: Canvas, time: Float) {
         paint.color = 0x55101820
         c.drawRect(0f, 0f, cam.screenW, cam.screenH, paint)
+        // relámpago breve cada ~6 s
+        val cycle = time % 6.3f
+        if (cycle < 0.12f) { paint.color = 0x66FFFFFF; c.drawRect(0f, 0f, cam.screenW, cam.screenH, paint) }
         linePaint.color = 0x88C8DCEB.toInt(); linePaint.strokeWidth = 2f
         val seed = (time * 20f).toInt()
         for (i in 0 until 70) {

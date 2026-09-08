@@ -37,5 +37,8 @@ object Shop {
             val cost = when (sp.size) { com.momentadesunt.cretaceouspark.core.Size.S -> 30; com.momentadesunt.cretaceouspark.core.Size.M -> 50; else -> 80 }
             add(ShopItem("dna_${sp.id}", sp.name, "Empieza cada isla con 50 % de ADN de ${sp.name}.", cost, "Especies"))
         }
+        for (sp in com.momentadesunt.cretaceouspark.core.GameData.species) {
+            add(ShopItem("skin_${sp.id}", "Piel de ${sp.name}", "Piel alternativa (colores invertidos) disponible al incubar sin investigar el gen.", 20, "Pieles"))
+        }
     }
 }
