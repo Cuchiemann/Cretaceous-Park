@@ -534,6 +534,7 @@ class World(var s: GameState) {
             val r = grid.regionAt(xx, yy)
             if (region == -1) region = r else if (region != r) return Result.fail("Cruza una valla")
         }
+        if (!grid.isFlat(x, y, def.w, def.h)) return Result.fail("Terreno desnivelado: nivela primero")
         if (def.insideEnclosure && region == 0) return Result.fail("Debe ir dentro de un recinto cerrado")
         if (!def.insideEnclosure && region != 0) return Result.fail("No puede ir dentro de un recinto")
         if (def.needsPath && !grid.hasAdjacentPath(x, y, def.w, def.h)) return Result.fail("Necesita un camino adyacente")
@@ -732,7 +733,13 @@ class World(var s: GameState) {
 
     fun canTerraform(tool: TerrainTool, x: Int, y: Int): Result {
         if (!s.inBounds(x, y)) return Result.fail("Fuera de la isla")
-        if (s.terrainAt(x, y) != tool.from) return Result.fail("Aquí no se puede: ${tool.label}")
+        val t = s.terrainAt(x, y)
+        if (tool.isRelief) {
+            if (t == Terrain.WATER || t == Terrain.BRIDGE) return Result.fail("No sobre el agua: rellena primero")
+            val lv = s.levelAt(x, y)
+            if (tool.dh > 0 && lv >= Terrain.MAX_LEVEL) return Result.fail("Altura máxima (${Terrain.MAX_LEVEL} bloques)")
+            if (tool.dh < 0 && lv <= 0) return Result.fail("Ya está al nivel del mar")
+        } else if (t != tool.from) return Result.fail("Aquí no se puede: ${tool.label}")
         if (grid.buildingAt(x, y) != null) return Result.fail("Hay un edificio")
         if (!canAfford(tool.cost)) return Result.fail("Dinero insuficiente")
         return Result.OK
@@ -741,16 +748,24 @@ class World(var s: GameState) {
     fun terraform(tool: TerrainTool, x: Int, y: Int, rebuild: Boolean = true): Result {
         val r = canTerraform(tool, x, y); if (!r.ok) return r
         spendCapital(tool.cost.toFloat())
-        s.terrain[s.idx(x, y)] = tool.to
-        if (rebuild) { grid.rebuildRegions(); dirty = true }
+        if (tool.isRelief) s.height[s.idx(x, y)] = (s.levelAt(x, y) + tool.dh).coerceIn(0, Terrain.MAX_LEVEL)
+        else s.terrain[s.idx(x, y)] = tool.to
+        if (rebuild) afterTerrainChange(tool)
         return Result.OK
+    }
+
+    /** Tras cambiar el terreno: regiones, rutas (el relieve puede cortarlas) y cachés de la vista. */
+    private fun afterTerrainChange(tool: TerrainTool) {
+        grid.rebuildRegions()
+        if (tool.isRelief) { for (v in s.visitors) v.path.clear(); for (d in s.dinos) d.path.clear() }
+        dirty = true
     }
 
     /** Pincel de terreno: aplica la herramienta a varios tiles y reconstruye una sola vez. Devuelve tiles cambiados. */
     fun terraformMany(tool: TerrainTool, tiles: IntArray): Int {
         var changed = 0
         for (i in tiles) if (terraform(tool, i % n, i / n, false).ok) changed++
-        if (changed > 0) { grid.rebuildRegions(); dirty = true; sfx("place") }
+        if (changed > 0) { afterTerrainChange(tool); sfx("place") }
         return changed
     }
 
@@ -821,7 +836,7 @@ class World(var s: GameState) {
         if (free.isEmpty()) return Result.fail("El recinto no tiene suelo libre")
         spendOps(cost.toFloat())
         val t = free[rnd.nextInt(free.size)]
-        d.x = t % n + 0.5f; d.y = t / n + 0.5f; d.tx = d.x; d.ty = d.y
+        d.x = t % n + 0.5f; d.y = t / n + 0.5f; d.tx = d.x; d.ty = d.y; d.path.clear()
         d.region = region; d.homeRegion = region
         d.state = DinoState.WANDER; d.sleep = 0f; d.stress = 30f; d.targetEdge = -1
         return Result.OK
@@ -887,6 +902,7 @@ class World(var s: GameState) {
             if (py < 1 || px + pen >= n) return@forEachIndexed
             for (y in py..py + pen - 1) for (x in px..px + pen - 1) {
                 val t = s.terrainAt(x, y)
+                s.height[s.idx(x, y)] = 0
                 if (t == Terrain.FOREST || t == Terrain.ROCK || t == Terrain.WATER || Terrain.isWalkablePath(t)) s.terrain[s.idx(x, y)] = Terrain.GRASS
                 grid.buildingAt(x, y)?.let { if (it.type != "entrance") s.buildings.remove(it) }
             }
@@ -905,12 +921,12 @@ class World(var s: GameState) {
         val pathY = entrance.y - 6
         var bx = (entrance.x - 22).coerceAtLeast(1)
         val defs = listOf("generator") + GameData.buildings.filter { it.id != "entrance" && it.id != "generator" && !it.insideEnclosure }.map { it.id }
-        for (x in bx until (bx + 60).coerceAtMost(n - 1)) { if (s.terrainAt(x, pathY) != Terrain.PATH) { s.terrain[s.idx(x, pathY)] = Terrain.GRASS; placePath(x, pathY) } }
+        for (x in bx until (bx + 60).coerceAtMost(n - 1)) { s.height[s.idx(x, pathY)] = 0; if (s.terrainAt(x, pathY) != Terrain.PATH) { s.terrain[s.idx(x, pathY)] = Terrain.GRASS; placePath(x, pathY) } }
         for (id in defs) {
             val d = GameData.building(id)
             val by = pathY - d.h
             if (bx + d.w >= n - 1) break
-            for (yy in by until by + d.h) for (xx in bx until bx + d.w) { s.terrain[s.idx(xx, yy)] = Terrain.GRASS; grid.buildingAt(xx, yy)?.let { if (it.type != "entrance") s.buildings.remove(it) } }
+            for (yy in by until by + d.h) for (xx in bx until bx + d.w) { s.terrain[s.idx(xx, yy)] = Terrain.GRASS; s.height[s.idx(xx, yy)] = 0; grid.buildingAt(xx, yy)?.let { if (it.type != "entrance") s.buildings.remove(it) } }
             grid.rebuildBuildings(); grid.rebuildPower(); grid.rebuildRegions()
             if (d.attachToFence) { fenceRect(bx, by - 2, bx + d.w - 1, by - 1, Fence.LIGHT) }
             placeBuilding(id, bx, by)

@@ -29,6 +29,7 @@ import com.momentadesunt.cretaceouspark.render.GameView
 
 @Composable
 fun GameScreen(vm: GameViewModel) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val w = vm.world ?: return
     vm.frame
     BackHandler {
@@ -82,6 +83,7 @@ private fun Toast(text: String, color: Color = Color(0xE6101A14)) {
 // ------------------------------------------------------------------ barra superior
 @Composable
 private fun TopBar(vm: GameViewModel, w: World, modifier: Modifier) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val s = w.s
     Row(modifier.fillMaxWidth().background(Pal.panel).padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         val net = s.incomeMin - s.expenseMin
@@ -108,6 +110,7 @@ private fun SpeedButton(label: String, value: Int, current: Int, onClick: () -> 
 // ------------------------------------------------------------------ tutorial y alertas
 @Composable
 private fun TutorialCard(vm: GameViewModel, w: World, step: TutorialStep, modifier: Modifier) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val flash = System.currentTimeMillis() - vm.tutorialFlash < 1500
     CocFrame(modifier.width(340.dp), body = if (flash) Color(0xFFD7EDC9) else Pal.body, padding = 8) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -127,6 +130,7 @@ private fun TutorialCard(vm: GameViewModel, w: World, step: TutorialStep, modifi
 
 @Composable
 private fun AlertsColumn(vm: GameViewModel, w: World, modifier: Modifier) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     Column(modifier.widthIn(max = 340.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         for (a in w.s.alerts.takeLast(3).reversed()) {
             val red = a.kind in w.redAlertKinds
@@ -138,6 +142,7 @@ private fun AlertsColumn(vm: GameViewModel, w: World, modifier: Modifier) {
 
 @Composable
 private fun CameraControls(vm: GameViewModel, modifier: Modifier) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     @Composable fun B(label: String, action: () -> Unit) = CocButton(label, action, Modifier.width(48.dp), color = Pal.darkBtn, dark = Pal.darkBtnDark, small = true)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { B("↻") { vm.view?.cam?.rotate() }; B("⌂") { vm.view?.centerOnEntrance() } }
@@ -149,6 +154,7 @@ private fun CameraControls(vm: GameViewModel, modifier: Modifier) {
 /** Confirmar/borrar el plano (vallas, caminos, edificios) o tamaño del pincel (terreno, demoler). */
 @Composable
 private fun ToolBar(vm: GameViewModel, w: World) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val t = vm.tool
     if (t is Tool.None || t is Tool.Gate) return
     Row(Modifier.fillMaxWidth().background(Pal.panel).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -173,7 +179,7 @@ private fun ToolBar(vm: GameViewModel, w: World) {
             else -> {
                 Hint(when (t) {
                     is Tool.Demolish -> "Pinta para quitar caminos y vallas · toca un edificio para demolerlo"
-                    is Tool.Terraform -> "Pinta sobre el mapa · ${t.t.cost} $ por tile"
+                    is Tool.Terraform -> if (t.t.isRelief) "Pinta para ${if (t.t.dh > 0) "subir" else "bajar"} el terreno un bloque · ${t.t.cost} $ por tile · dinos y visitantes solo salvan un bloque de desnivel" else "Pinta sobre el mapa · ${t.t.cost} $ por tile"
                     else -> ""
                 })
                 Text("Pincel", color = Pal.text3, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -186,6 +192,7 @@ private fun ToolBar(vm: GameViewModel, w: World) {
 // ------------------------------------------------------------------ barra inferior
 @Composable
 private fun BuildBar(vm: GameViewModel, w: World) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     Column(Modifier.fillMaxWidth().background(Pal.panel)) {
         if (vm.buildOpen) {
             val cat = vm.category
@@ -225,6 +232,7 @@ private fun MainTab(label: String, icon: String, active: Boolean, badge: String?
 
 @Composable
 private fun ToolItems(vm: GameViewModel, w: World, cat: Category) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val tool = vm.tool
     when (cat) {
         Category.ENCLOSURE -> {
@@ -239,7 +247,7 @@ private fun ToolItems(vm: GameViewModel, w: World, cat: Category) {
             ToolCard("Camino", "🛤", "dibuja y confirma", "20", tool is Tool.PathTool, true, "") { vm.useTool(Tool.PathTool) }
             for (b in GameData.buildings.filter { it.category == cat }) BuildingCard(vm, w, b)
         }
-        Category.TERRAIN -> for (t in TerrainTool.values()) ToolCard(t.label, "⛏", "pincel · por tile", "${t.cost}", tool == Tool.Terraform(t), true, "") { vm.useTool(Tool.Terraform(t)) }
+        Category.TERRAIN -> for (t in TerrainTool.values()) ToolCard(t.label, t.icon, if (t.isRelief) "pincel · hasta ${Terrain.MAX_LEVEL} bloques" else "pincel · por tile", "${t.cost}", tool == Tool.Terraform(t), true, "") { vm.useTool(Tool.Terraform(t)) }
         else -> for (b in GameData.buildings.filter { it.category == cat && it.id != "entrance" }) BuildingCard(vm, w, b)
     }
 }
@@ -252,6 +260,7 @@ private val buildingIcons = mapOf(
 
 @Composable
 private fun BuildingCard(vm: GameViewModel, w: World, b: BuildingDef) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val u = w.buildingUnlocked(b)
     ToolCard(b.name, buildingIcons[b.id] ?: "🏗", "${b.w}×${b.h}" + (if (b.upkeep > 0) " · ${b.upkeep.toInt()} $/min" else ""), "${b.cost}", vm.tool == Tool.Build(b.id), u.ok, u.reason) { vm.useTool(Tool.Build(b.id)) }
 }
@@ -272,6 +281,7 @@ private fun ToolCard(name: String, icon: String, sub: String, cost: String, acti
 // ------------------------------------------------------------------ panel de selección
 @Composable
 private fun SelectionPanel(vm: GameViewModel, w: World) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         CocFrame(Modifier.fillMaxWidth(), padding = 10) {
             when (val sel = vm.selection) {
@@ -287,6 +297,7 @@ private fun SelectionPanel(vm: GameViewModel, w: World) {
 
 @Composable
 private fun DinoPanel(vm: GameViewModel, w: World, d: Dino) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     var transporting by remember(d.id) { mutableStateOf(false) }
     val def = d.def
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -339,6 +350,7 @@ private fun DinoPanel(vm: GameViewModel, w: World, d: Dino) {
 
 @Composable
 private fun BuildingPanel(vm: GameViewModel, w: World, b: Building) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val def = b.def
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -372,6 +384,7 @@ private fun BuildingPanel(vm: GameViewModel, w: World, b: Building) {
 
 @Composable
 private fun EdgePanel(vm: GameViewModel, w: World, e: EdgeRef) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val t = w.grid.fenceType(e)
     if (t == 0) { vm.select(null); return }
     val hp = w.grid.fenceHp(e); val maxHp = Fence.hp[t]
@@ -406,6 +419,7 @@ private fun EdgePanel(vm: GameViewModel, w: World, e: EdgeRef) {
 // ------------------------------------------------------------------ parque, fin de partida y marco de panel
 @Composable
 fun PauseScreen(vm: GameViewModel, w: World) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val s = w.s
     OverlayFrame("Parque · ${w.def.name}", onClose = { vm.overlay = null }, w = w, vm = vm) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -476,6 +490,7 @@ private fun StepTile(n: String, title: String, text: String, modifier: Modifier)
 
 @Composable
 fun GameOverScreen(vm: GameViewModel, w: World) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
         CocFrame(Modifier.width(420.dp), padding = 14) {
             Ribbon("El parque ha quebrado", color = Pal.red)

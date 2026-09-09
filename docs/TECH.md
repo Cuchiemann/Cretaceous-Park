@@ -152,6 +152,8 @@ Proyección ortográfica. Vista: rotación 45° + k·90° alrededor del eje Y, i
 
 ### 5.3 Terreno y vallas
 
+> Estado actual (Kotlin/Canvas): el relieve vive en `GameState.height` (nivel 0..3 por tile, `Terrain.STEP` = 0,25 z, el mismo alto que el hueco del agua). `IsoRenderer.drawGroundAndObjects` pinta el suelo por **diagonales de vista** (atrás → delante) intercalado con las cajas de los objetos de esa diagonal, porque un tile alto tapa lo que hay detrás y lo de delante debe ir encima; dentro de una diagonal ni cimas ni caras se solapan y se agrupan por color. Cada tile pinta su cima y, hacia cada vecino frontal más bajo, la cara que baja hasta él (tramo de orilla en tono agua si el vecino es agua; al mar, hasta `Terrain.SEA_Z`). El toque usa `IsoCamera.pickWorld`, que prueba cada cota de arriba abajo. La regla de movimiento (`GameState.stepOk`, desnivel ≤ 1) está en `Grid.findPath`/`reachableFrom`, que usan tanto los visitantes (sobre camino) como los dinos (`Dino.path` dentro de su región).
+
 - Terreno en **chunks de 8×8 tiles**, cada uno una malla que se regenera al editar cualquiera de sus tiles (caras superiores + laterales solo hacia el mar). Agua: quad plano animado en el shader.
 - Vallas: modelo por tipo y orientación, instanciado por borde. Tramo dañado → variante "rota" a partir del 50 % PV; eléctrica con energía → tinte emisivo azul.
 

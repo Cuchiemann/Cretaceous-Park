@@ -108,12 +108,12 @@ object GameData {
 
     // ---- Islas ------------------------------------------------------------------------------------------------
     val islands: List<IslandDef> = listOf(
-        IslandDef("brote", "Isla Brote", 63, 150000, 400f, 15, 3, 5, 7, 300f, 420f, 100, 0, 0, 0, 1, 0f, "Casi toda hierba. Aprende las bases."),
-        IslandDef("ceniza", "Isla Ceniza", 89, 200000, 800f, 10, 30, 5, 10, 240f, 360f, 50, 50, 0, 0, 2, 3f, "Mucha roca: el espacio es caro. Aparece la enfermedad."),
-        IslandDef("tormenta", "Isla Tormenta", 101, 220000, 1200f, 20, 5, 10, 10, 200f, 300f, 50, 25, 25, 0, 3, 4f, "Tormentas fuertes y fugas."),
-        IslandDef("espejo", "Isla Espejo", 114, 250000, 1800f, 15, 5, 30, 5, 180f, 300f, 30, 25, 20, 25, 2, 4f, "Muchos lagos y sabotajes."),
-        IslandDef("corona", "Isla Corona", 139, 180000, 2500f, 20, 10, 15, 5, 150f, 240f, 30, 25, 20, 25, 3, 5f, "Todo activado y poco presupuesto."),
-        IslandDef("libre", "Isla Libre", 126, 5000000, 1f, 15, 5, 10, 8, 300f, 480f, 40, 20, 20, 20, 2, 0f, "Sandbox: dinero casi infinito, sin estrellas.", sandbox = true)
+        IslandDef("brote", "Isla Brote", 63, 150000, 400f, 15, 3, 5, 7, 300f, 420f, 100, 0, 0, 0, 1, 0f, "Casi toda hierba. Aprende las bases.", relief = 1),
+        IslandDef("ceniza", "Isla Ceniza", 89, 200000, 800f, 10, 30, 5, 10, 240f, 360f, 50, 50, 0, 0, 2, 3f, "Mucha roca: el espacio es caro. Aparece la enfermedad.", relief = 3),
+        IslandDef("tormenta", "Isla Tormenta", 101, 220000, 1200f, 20, 5, 10, 10, 200f, 300f, 50, 25, 25, 0, 3, 4f, "Tormentas fuertes y fugas.", relief = 2),
+        IslandDef("espejo", "Isla Espejo", 114, 250000, 1800f, 15, 5, 30, 5, 180f, 300f, 30, 25, 20, 25, 2, 4f, "Muchos lagos y sabotajes.", relief = 1),
+        IslandDef("corona", "Isla Corona", 139, 180000, 2500f, 20, 10, 15, 5, 150f, 240f, 30, 25, 20, 25, 3, 5f, "Todo activado y poco presupuesto.", relief = 3),
+        IslandDef("libre", "Isla Libre", 126, 5000000, 1f, 15, 5, 10, 8, 300f, 480f, 40, 20, 20, 20, 2, 0f, "Sandbox: dinero casi infinito, sin estrellas.", sandbox = true, relief = 2)
     )
     val islandById = islands.associateBy { it.id }
 

@@ -14,6 +14,14 @@ object Terrain {
     fun isWalkablePath(t: Int) = t == PATH || t == BRIDGE
     fun isBuildable(t: Int) = t == GRASS || t == SAND
     fun dinoWalkable(t: Int) = t == GRASS || t == SAND || t == FOREST
+
+    /** Relieve: cada tile tiene un nivel 0..MAX_LEVEL. Un nivel mide STEP unidades z, lo mismo que el hueco del agua. */
+    const val MAX_LEVEL = 3
+    const val STEP = 0.25f
+    /** Fondo del mar alrededor de la isla (acantilado del borde). */
+    const val SEA_Z = -0.6f
+    /** Desnivel máximo que pueden cruzar dinosaurios y visitantes entre tiles vecinos. */
+    const val MAX_CLIMB = 1
 }
 
 enum class Diet { HERBIVORE, CARNIVORE }
@@ -84,15 +92,22 @@ data class IslandDef(
     val pctForest: Int, val pctRock: Int, val pctWater: Int, val pctSand: Int,
     val eventMin: Float, val eventMax: Float,
     val wStorm: Int, val wDisease: Int, val wEscape: Int, val wSabotage: Int, val stormLevel: Int,
-    val requiredStarsPrev: Float, val desc: String, val sandbox: Boolean = false
+    val requiredStarsPrev: Float, val desc: String, val sandbox: Boolean = false,
+    /** Relieve 1 (suave) .. 3 (abrupto): cuánta superficie queda en niveles altos y cuántos cortados hay. */
+    val relief: Int = 2
 )
 
-enum class TerrainTool(val label: String, val from: Int, val to: Int, val cost: Int) {
-    CLEAR_FOREST("Talar", Terrain.FOREST, Terrain.GRASS, 100),
-    DIG_WATER("Cavar agua", Terrain.GRASS, Terrain.WATER, 150),
-    FILL_WATER("Rellenar", Terrain.WATER, Terrain.GRASS, 150),
-    PLANT_FOREST("Plantar", Terrain.GRASS, Terrain.FOREST, 80),
-    BLAST_ROCK("Demoler roca", Terrain.ROCK, Terrain.GRASS, 400)
+/** Herramientas de terreno. from/to = -1 para las de relieve, que cambian el nivel en dh. */
+enum class TerrainTool(val label: String, val from: Int, val to: Int, val cost: Int, val dh: Int = 0, val icon: String = "⛏") {
+    CLEAR_FOREST("Talar", Terrain.FOREST, Terrain.GRASS, 100, icon = "🪓"),
+    DIG_WATER("Cavar agua", Terrain.GRASS, Terrain.WATER, 150, icon = "💧"),
+    FILL_WATER("Rellenar", Terrain.WATER, Terrain.GRASS, 150, icon = "🪣"),
+    PLANT_FOREST("Plantar", Terrain.GRASS, Terrain.FOREST, 80, icon = "🌳"),
+    BLAST_ROCK("Demoler roca", Terrain.ROCK, Terrain.GRASS, 400, icon = "💥"),
+    RAISE("Elevar", -1, -1, 120, dh = 1, icon = "⬆"),
+    LOWER("Rebajar", -1, -1, 120, dh = -1, icon = "⬇");
+
+    val isRelief get() = dh != 0
 }
 
 /** Estado de un dinosaurio (máquina de estados). */

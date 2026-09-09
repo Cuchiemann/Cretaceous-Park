@@ -77,6 +77,7 @@ fun LabScreen(vm: GameViewModel, w: World) {
 /** Ficha compacta: vista previa | datos + genes + ADN | Incubar + recintos. */
 @Composable
 private fun SpeciesSheet(vm: GameViewModel, w: World, st: IncubState, sp: SpeciesDef) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
     val s = w.s
     val dna = s.dna[sp.id] ?: 0
     val known = dna > 0 || s.cloned.contains(sp.id)

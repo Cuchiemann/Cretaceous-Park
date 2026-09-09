@@ -188,21 +188,37 @@ class Grid(val s: GameState) {
 
     fun isPathTile(x: Int, y: Int) = s.inBounds(x, y) && Terrain.isWalkablePath(s.terrainAt(x, y))
 
-    /** Tiles de camino adyacentes a un edificio. */
+    /** Tile transitable para un dino (por índice). */
+    fun dinoWalkableIdx(i: Int): Boolean = Terrain.dinoWalkable(s.terrain[i]) && buildingAt[i] < 0
+
+    /** ¿Camino en (x,y) al que se llega desde un edificio a nivel `level` (desnivel máximo de un nivel)? */
+    private fun pathReachable(x: Int, y: Int, level: Int) = isPathTile(x, y) && kotlin.math.abs(s.levelAt(x, y) - level) <= Terrain.MAX_CLIMB
+
+    /** Tiles de camino adyacentes a un edificio (a un nivel alcanzable). */
     fun adjacentPathTiles(b: Building): List<Int> {
         val out = ArrayList<Int>()
+        val level = if (s.inBounds(b.x, b.y)) s.levelAt(b.x, b.y) else 0
         for (yy in b.y - 1..b.y + b.h) for (xx in b.x - 1..b.x + b.w) {
             if (b.covers(xx, yy)) continue
             val edgeAdj = (xx in b.x until b.x + b.w) || (yy in b.y until b.y + b.h)
-            if (edgeAdj && isPathTile(xx, yy)) out.add(s.idx(xx, yy))
+            if (edgeAdj && pathReachable(xx, yy, level)) out.add(s.idx(xx, yy))
         }
         return out
     }
 
     fun hasAdjacentPath(x: Int, y: Int, w: Int, h: Int): Boolean {
-        for (xx in x until x + w) { if (isPathTile(xx, y - 1) || isPathTile(xx, y + h)) return true }
-        for (yy in y until y + h) { if (isPathTile(x - 1, yy) || isPathTile(x + w, yy)) return true }
+        val level = if (s.inBounds(x, y)) s.levelAt(x, y) else 0
+        for (xx in x until x + w) { if (pathReachable(xx, y - 1, level) || pathReachable(xx, y + h, level)) return true }
+        for (yy in y until y + h) { if (pathReachable(x - 1, yy, level) || pathReachable(x + w, yy, level)) return true }
         return false
+    }
+
+    /** ¿Todos los tiles del rectángulo están al mismo nivel? */
+    fun isFlat(x: Int, y: Int, w: Int, h: Int): Boolean {
+        if (!s.inBounds(x, y)) return false
+        val lv = s.levelAt(x, y)
+        for (yy in y until y + h) for (xx in x until x + w) if (!s.inBounds(xx, yy) || s.levelAt(xx, yy) != lv) return false
+        return true
     }
 
     /** Bordes con valla que tocan el perímetro del edificio. */
@@ -224,12 +240,16 @@ class Grid(val s: GameState) {
         return if (e.h) Pair(regionAt(e.x, e.y - 1), regionAt(e.x, e.y)) else Pair(regionAt(e.x - 1, e.y), regionAt(e.x, e.y))
     }
 
-    /** BFS sobre caminos. Devuelve lista de tiles desde el siguiente al origen hasta el destino (vacía si no hay ruta). */
+    /**
+     * BFS 4-conexo con la regla de desnivel: solo se pasa entre vecinos cuya altura difiere en un nivel como mucho.
+     * `passable` decide qué tiles se pueden pisar; el origen siempre cuenta. Devuelve la lista de tiles desde el
+     * siguiente al origen hasta el destino (vacía si no hay ruta o si origen = destino).
+     */
     private val bfsPrev = IntArray(n * n)
     private val bfsQueue = IntArray(n * n)
     private val bfsSeen = BooleanArray(n * n)
 
-    fun pathBetween(from: Int, to: Int): MutableList<Int> {
+    fun findPath(from: Int, to: Int, passable: (Int) -> Boolean): MutableList<Int> {
         if (from == to) return mutableListOf()
         val prev = bfsPrev; prev.fill(-1)
         val queue = bfsQueue
@@ -239,11 +259,11 @@ class Grid(val s: GameState) {
             val t = queue[qh++]
             if (t == to) break
             val x = t % n; val y = t / n
-            fun visit(u: Int) { if (prev[u] == -1) { prev[u] = t; queue[qt++] = u } }
-            if (x > 0 && isPathTile(x - 1, y)) visit(t - 1)
-            if (x < n - 1 && isPathTile(x + 1, y)) visit(t + 1)
-            if (y > 0 && isPathTile(x, y - 1)) visit(t - n)
-            if (y < n - 1 && isPathTile(x, y + 1)) visit(t + n)
+            fun visit(u: Int) { if (prev[u] == -1 && s.stepOk(t, u) && passable(u)) { prev[u] = t; queue[qt++] = u } }
+            if (x > 0) visit(t - 1)
+            if (x < n - 1) visit(t + 1)
+            if (y > 0) visit(t - n)
+            if (y < n - 1) visit(t + n)
         }
         if (prev[to] == -1) return mutableListOf()
         val out = ArrayList<Int>()
@@ -253,21 +273,30 @@ class Grid(val s: GameState) {
         return out
     }
 
-    /** Alcance de tiles de camino desde un origen (para elegir destinos accesibles). */
-    /** El array devuelto es un buffer compartido: consumir antes de la siguiente llamada. */
-    fun reachablePaths(from: Int): BooleanArray {
+    /** Tiles alcanzables desde un origen con la regla de desnivel. El array devuelto es un buffer compartido. */
+    fun reachableFrom(from: Int, passable: (Int) -> Boolean): BooleanArray {
         val seen = bfsSeen; seen.fill(false)
-        if (!isPathTile(from % n, from / n)) return seen
         val queue = bfsQueue; var qh = 0; var qt = 0
         queue[qt++] = from; seen[from] = true
         while (qh < qt) {
             val t = queue[qh++]; val x = t % n; val y = t / n
-            fun visit(u: Int) { if (!seen[u]) { seen[u] = true; queue[qt++] = u } }
-            if (x > 0 && isPathTile(x - 1, y)) visit(t - 1)
-            if (x < n - 1 && isPathTile(x + 1, y)) visit(t + 1)
-            if (y > 0 && isPathTile(x, y - 1)) visit(t - n)
-            if (y < n - 1 && isPathTile(x, y + 1)) visit(t + n)
+            fun visit(u: Int) { if (!seen[u] && s.stepOk(t, u) && passable(u)) { seen[u] = true; queue[qt++] = u } }
+            if (x > 0) visit(t - 1)
+            if (x < n - 1) visit(t + 1)
+            if (y > 0) visit(t - n)
+            if (y < n - 1) visit(t + n)
         }
         return seen
+    }
+
+    private val pathPassable: (Int) -> Boolean = { Terrain.isWalkablePath(s.terrain[it]) }
+
+    /** Ruta de visitante sobre caminos (BFS con desnivel máximo de un nivel). */
+    fun pathBetween(from: Int, to: Int): MutableList<Int> = findPath(from, to, pathPassable)
+
+    /** Alcance de tiles de camino desde un origen (para elegir destinos accesibles). Buffer compartido: consumir antes de la siguiente llamada. */
+    fun reachablePaths(from: Int): BooleanArray {
+        if (!isPathTile(from % n, from / n)) { bfsSeen.fill(false); return bfsSeen }
+        return reachableFrom(from, pathPassable)
     }
 }

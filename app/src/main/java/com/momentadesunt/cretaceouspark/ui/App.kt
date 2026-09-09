@@ -27,6 +27,10 @@ import com.momentadesunt.cretaceouspark.core.Size
 
 @Composable
 fun App(vm: GameViewModel) {
+    vm.frame   // observa el contador de fotogramas: sin esto Compose salta la recomposición (strong skipping)
+    // presentación del estudio, solo al arrancar la app
+    var showSplash by remember { mutableStateOf(true) }
+    if (showSplash) { SplashScreen { showSplash = false }; return }
     when (vm.screen) {
         Screen.MENU -> MenuScreen(vm)
         Screen.ISLANDS -> IslandsScreen(vm)
@@ -54,6 +58,7 @@ fun MenuScreen(vm: GameViewModel) {
     MenuBackground {
         AmberBadge(vm, Modifier.align(Alignment.TopStart).padding(16.dp))
         Text("v0.2 · Sin conexión · Guardado automático", color = Pal.ink3, fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp))
+        StudioMark(Modifier.align(Alignment.BottomStart).padding(16.dp))
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(26.dp).clip(RoundedCornerShape(5.dp)).background(Pal.green)); Spacer(Modifier.width(5.dp)); Box(Modifier.size(26.dp).clip(RoundedCornerShape(5.dp)).background(Pal.greenDark))

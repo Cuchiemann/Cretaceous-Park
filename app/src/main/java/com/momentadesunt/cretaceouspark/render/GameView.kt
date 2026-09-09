@@ -115,7 +115,8 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
                 Terrain.WATER -> 0xFF4FA3D9.toInt()
                 else -> 0xFFB9AE95.toInt()
             }
-            px[i] = if (world.grid.region[i] > 0) blend(base, 0xFFFFFFFF.toInt(), 0.25f) else base
+            val lit = if (s.terrain[i] == Terrain.WATER) base else blend(base, 0xFFFFFFFF.toInt(), 0.12f * s.height[i])   // más claro cuanto más alto
+            px[i] = if (world.grid.region[i] > 0) blend(lit, 0xFFFFFFFF.toInt(), 0.25f) else lit
         }
         for (b in s.buildings) for (yy in b.y until b.y + b.h) for (xx in b.x until b.x + b.w) if (s.inBounds(xx, yy)) px[s.idx(xx, yy)] = b.def.color
         bmp.setPixels(px, 0, n, 0, 0, n, n)
@@ -191,6 +192,14 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
         renderer.brush = vm.brushAt
     }
 
+    // ------------------------------------------------------------------ selección con relieve
+    /** Punto de mundo bajo el píxel, sobre la superficie que realmente se ve (cimas altas incluidas). */
+    private fun pickWorld(px: Float, py: Float): Pair<Float, Float> {
+        val s = vm.world?.s ?: return cam.screenToWorld(px, py)
+        return cam.pickWorld(px, py) { x, y -> if (s.inBounds(x, y)) s.groundZ(x, y) else null }
+    }
+    private fun pickTile(px: Float, py: Float): Pair<Int, Int> { val (wx, wy) = pickWorld(px, py); return Pair(floor(wx).toInt(), floor(wy).toInt()) }
+
     // ------------------------------------------------------------------ gestos
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private var downX = 0f; private var downY = 0f; private var downTime = 0L
@@ -250,7 +259,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
                 if (moved && !dragging && !painting && !movingGhost) beginStroke()
                 if (dragging) { cam.panBy(e.x - lastX, e.y - lastY); vm.world?.cameraMoved = true }
                 else if (painting) strokeTo(e.x, e.y)
-                else if (movingGhost) { val (tx, ty) = cam.screenToTile(e.x, e.y); vm.setGhost(tx + ghostOffX, ty + ghostOffY) }
+                else if (movingGhost) { val (tx, ty) = pickTile(e.x, e.y); vm.setGhost(tx + ghostOffX, ty + ghostOffY) }
                 lastX = e.x; lastY = e.y
             }
             MotionEvent.ACTION_UP -> {
@@ -274,7 +283,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
             is Tool.Terraform, is Tool.Demolish -> { painting = true; lastPaintTile = -1; strokeTo(downX, downY) }
             is Tool.Build -> {
                 val g = vm.ghost
-                val (tx, ty) = cam.screenToTile(downX, downY)
+                val (tx, ty) = pickTile(downX, downY)
                 val def = GameData.building(t.defId)
                 if (g != null && tx >= g.first && tx < g.first + def.w && ty >= g.second && ty < g.second + def.h) {
                     movingGhost = true; ghostOffX = g.first - tx; ghostOffY = g.second - ty
@@ -301,7 +310,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
 
     /** Vértice de la rejilla más cercano al punto de pantalla, acotado a la isla. */
     private fun snapCorner(px: Float, py: Float, n: Int): Pair<Int, Int> {
-        val (wx, wy) = cam.screenToWorld(px, py)
+        val (wx, wy) = pickWorld(px, py)
         return Pair(Math.round(wx).coerceIn(0, n), Math.round(wy).coerceIn(0, n))
     }
 
@@ -326,7 +335,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
     /** Línea 4-conexa desde el último tile hasta el punto dado; deja los tiles en strokeCells. */
     private fun lineTo(px: Float, py: Float, w: com.momentadesunt.cretaceouspark.core.World) {
         strokeCells.clear()
-        val (tx0, ty0) = cam.screenToTile(px, py)
+        val (tx0, ty0) = pickTile(px, py)
         val tx = tx0.coerceIn(0, w.n - 1); val ty = ty0.coerceIn(0, w.n - 1)
         val idx = w.s.idx(tx, ty)
         if (idx == lastPaintTile) return
@@ -375,7 +384,7 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
 
     private fun tap(px: Float, py: Float) {
         val w = vm.world ?: return
-        val (wx, wy) = cam.screenToWorld(px, py)
+        val (wx, wy) = pickWorld(px, py)
         val tx = floor(wx).toInt(); val ty = floor(wy).toInt()
         when (val t = vm.tool) {
             is Tool.None -> select(px, py, wx, wy)
@@ -418,7 +427,9 @@ class GameView(context: Context, val vm: GameViewModel) : View(context) {
         // dinos por distancia en pantalla
         var best: Int = -1; var bd = Float.MAX_VALUE
         for (d in w.s.dinos) {
-            val sx = cam.worldSx(d.x, d.y); val sy = cam.worldSy(d.x, d.y, 0.5f)
+            val dx = floor(d.x).toInt(); val dy = floor(d.y).toInt()
+            val gz = if (w.s.inBounds(dx, dy)) w.s.groundZ(dx, dy) else 0f
+            val sx = cam.worldSx(d.x, d.y); val sy = cam.worldSy(d.x, d.y, gz + 0.5f)
             val dist = hypot(sx - px, sy - py)
             val radius = cam.tileW * (0.35f + 0.25f * d.def.size.footprint)
             if (dist < radius && dist < bd) { bd = dist; best = d.id }

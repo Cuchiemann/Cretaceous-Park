@@ -139,7 +139,21 @@ El **Ámbar** se gana por hitos (primera clonación de cada especie, estrellas, 
 
 - Cada isla es una rejilla cuadrada de tiles. Fuera de la isla, mar (no construible).
 - Tipos de tile: **hierba** (construible), **arena** (construible, los herbívoros no la consideran "espacio de calidad"), **bosque** (no construible hasta talar; cuenta como refugio para dinos), **roca** (no construible; se puede demoler con coste), **agua** (natural o colocada por el jugador; sirve como bebedero, no construible).
-- Herramientas de terreno: **Talar** (bosque → hierba), **Cavar agua** (hierba → agua), **Rellenar** (agua → hierba), **Plantar bosque** (hierba → bosque). Coste por tile.
+- Herramientas de terreno: **Talar** (bosque → hierba), **Cavar agua** (hierba → agua), **Rellenar** (agua → hierba), **Plantar bosque** (hierba → bosque), **Elevar** y **Rebajar** (un bloque de relieve por pincelada). Coste por tile.
+
+### 5.1b Relieve
+
+- Cada tile tiene un **nivel de 0 a 3**. Un nivel mide lo mismo que el hueco del agua (un cuarto de tile de alto), así que las mesetas se leen sin tapar el parque.
+- **Desnivel de 1**: dinosaurios y visitantes lo salvan sin más. **Desnivel de 2 o más**: es un cortado; ni las rutas de los visitantes (sobre camino) ni las de los dinos (dentro del recinto) lo cruzan. Un comedero en lo alto de un cortado sin rampa provoca el aviso "no puede llegar al comedero (desnivel)".
+- Los edificios exigen **terreno llano** bajo toda su huella ("Terreno desnivelado: nivela primero"). Las vallas y los caminos se colocan a cualquier nivel; el camino solo será transitable donde el desnivel sea de un bloque.
+- El agua queda un nivel por debajo de su orilla; no se puede elevar ni rebajar sin rellenarla antes.
+
+### 5.1c Generación procedural
+
+- Un campo de ruido continuo (fBm) reparte los **lagos** en las zonas más bajas y los **niveles de relieve** en el resto por cuantiles, de modo que los porcentajes de agua, bosque y roca de cada isla se respetan.
+- Cada isla tiene un **relieve** (1 suave, 2 medio, 3 abrupto) que fija cuánta superficie queda en niveles altos y cuántas mesetas con cortados aparecen. Brote y Espejo son suaves; Ceniza y Corona, abruptas.
+- El bosque sigue la humedad (ruido) y se concentra junto al agua y en las cotas bajas; la roca, en las cotas altas y los cortados. Las orillas de los lagos bajan como mucho un nivel por tile y la arena aparece en ellas y en la costa exterior.
+- La zona de la entrada queda llana y a nivel 0, con el relieve amortiguado en un radio de diez tiles.
 
 ### 5.2 Islas
 

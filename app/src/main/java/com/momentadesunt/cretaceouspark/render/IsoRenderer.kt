@@ -11,7 +11,14 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Dibuja el mundo como cajas isométricas de color plano con tres tonos. */
+/**
+ * Dibuja el mundo como cajas isométricas de color plano con tres tonos.
+ *
+ * El suelo tiene relieve (niveles de Terrain.STEP), así que se pinta por diagonales de vista (atrás → delante)
+ * intercalado con los objetos de esa misma diagonal: un tile alto tapa lo que queda detrás de él y los objetos
+ * situados delante se pintan encima. Dentro de una diagonal ni las caras ni las cimas se solapan, por lo que
+ * ahí sí se agrupan por color en un solo Path.
+ */
 class IsoRenderer(val cam: IsoCamera) {
     private val paint = Paint().apply { style = Paint.Style.FILL; isAntiAlias = false }
     private val linePaint = Paint().apply { style = Paint.Style.STROKE; isAntiAlias = true; strokeWidth = 3f }
@@ -21,6 +28,8 @@ class IsoRenderer(val cam: IsoCamera) {
     private val flat = ArrayList<RBox>(4096)
     private val sorter = BoxSorter(cam)
     private val groundPaths = HashMap<Int, Path>()
+    private val usedPaths = ArrayList<Path>(16)
+    private val usedColors = ArrayList<Int>(16)
 
     // colores
     private val cGrass = 0xFF5FA85A.toInt()
@@ -67,31 +76,32 @@ class IsoRenderer(val cam: IsoCamera) {
     // ------------------------------------------------------------------ dibujo principal
     fun draw(c: Canvas, w: World, time: Float) {
         val s = w.s
-        val n = s.size
         cam.prepare()
         c.drawColor(cSea)
-        drawGround(c, s, w)
         collectObjects(w, time)
         lastObjCount = objs.size
         sorter.sort(objs, flat)
-        for (b in flat) drawBox(c, b)
+        drawGroundAndObjects(c, s)
         drawOverlays(c, w)
         if (w.stormActive) drawStorm(c, time)
     }
 
-    /** Vista previa: un dino sobre 3×3 tiles de hierba, sin mundo. */
+    /** Vista previa: un dino sobre 4×4 tiles de hierba, sin mundo. */
     fun drawPreview(c: Canvas, d: Dino, time: Float) {
         cam.prepare()
-        for (p in groundPaths.values) p.rewind()
-        for (y in 1..4) for (x in 1..4) addTop(groundPath(if ((x + y) and 1 == 0) cGrass else cGrass2), x.toFloat(), y.toFloat(), 0f, 1f, 1f)
-        // borde de la parcela
-        val cliffL = shade(cCliff, 0.85f); val cliffR = shade(cCliff, 0.7f)
-        addQuad(groundPath(cliffL), cam.worldSx(1f, 5f), cam.worldSy(1f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, -0.3f), cam.worldSx(1f, 5f), cam.worldSy(1f, 5f, -0.3f))
-        addQuad(groundPath(cliffR), cam.worldSx(5f, 1f), cam.worldSy(5f, 1f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, 0f), cam.worldSx(5f, 5f), cam.worldSy(5f, 5f, -0.3f), cam.worldSx(5f, 1f), cam.worldSy(5f, 1f, -0.3f))
-        for ((col, p) in groundPaths) { if (!p.isEmpty) { paint.color = col; c.drawPath(p, paint) } }
+        beginGround()
+        for (y in 1..4) for (x in 1..4) {
+            val cx = floor(cam.toViewX(x + 0.5f, y + 0.5f)).toInt(); val cy = floor(cam.toViewY(x + 0.5f, y + 0.5f)).toInt()
+            val wl = floor(cam.viewToWorldX(cx + 0.5f, cy + 1.5f)).toInt() to floor(cam.viewToWorldY(cx + 0.5f, cy + 1.5f)).toInt()
+            val wr = floor(cam.viewToWorldX(cx + 1.5f, cy + 0.5f)).toInt() to floor(cam.viewToWorldY(cx + 1.5f, cy + 0.5f)).toInt()
+            val zl = if (wl.first in 1..4 && wl.second in 1..4) 0f else -0.3f
+            val zr = if (wr.first in 1..4 && wr.second in 1..4) 0f else -0.3f
+            addTile(cx, cy, 0f, if ((x + y) and 1 == 0) cGrass else cGrass2, zl, -1f, zr, -1f)
+        }
+        flushGround(c)
         objs.clear()
         selectedDino = -1
-        addDino(d, time)
+        addDino(d, time, 0f)
         sorter.sort(objs, flat)
         for (b in flat) drawBox(c, b)
     }
@@ -107,96 +117,116 @@ class IsoRenderer(val cam: IsoCamera) {
         return intArrayOf(max(0, minX - 1), max(0, minY - 1), min(n - 1, maxX + 1), min(n - 1, maxY + 1))
     }
 
-    private fun groundPath(color: Int): Path = groundPaths.getOrPut(color) { Path() }
+    private fun groundPath(color: Int): Path {
+        val p = groundPaths.getOrPut(color) { Path() }
+        if (p.isEmpty) { usedPaths.add(p); usedColors.add(color) }
+        return p
+    }
+
+    private fun beginGround() { for (p in usedPaths) p.rewind(); usedPaths.clear(); usedColors.clear() }
+
+    /** Pinta y vacía los paths de suelo acumulados (una diagonal). */
+    private fun flushGround(c: Canvas) {
+        for (k in usedPaths.indices) { val p = usedPaths[k]; if (!p.isEmpty) { paint.color = usedColors[k]; c.drawPath(p, paint); p.rewind() } }
+        usedPaths.clear(); usedColors.clear()
+    }
 
     private fun addQuad(p: Path, x0: Float, y0: Float, x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) {
         p.moveTo(x0, y0); p.lineTo(x1, y1); p.lineTo(x2, y2); p.lineTo(x3, y3); p.close()
     }
 
-    /** Añade la cara superior de un tile a un path por color. */
-    private fun addTop(p: Path, x: Float, y: Float, z: Float, w: Float, d: Float) {
-        val ax = cam.worldSx(x, y); val ay = cam.worldSy(x, y, z)
-        val bx = cam.worldSx(x + w, y); val by = cam.worldSy(x + w, y, z)
-        val cx = cam.worldSx(x + w, y + d); val cy = cam.worldSy(x + w, y + d, z)
-        val dx = cam.worldSx(x, y + d); val dy = cam.worldSy(x, y + d, z)
-        addQuad(p, ax, ay, bx, by, cx, cy, dx, dy)
+    /** Cima de la celda de vista (cx, cy) a altura z. */
+    private fun addTopCell(p: Path, cx: Int, cy: Int, z: Float) {
+        val vx0 = cx.toFloat(); val vy0 = cy.toFloat(); val vx1 = vx0 + 1f; val vy1 = vy0 + 1f
+        addQuad(p, cam.sx(vx0, vy0), cam.sy(vx0, vy0, z), cam.sx(vx1, vy0), cam.sy(vx1, vy0, z), cam.sx(vx1, vy1), cam.sy(vx1, vy1, z), cam.sx(vx0, vy1), cam.sy(vx0, vy1, z))
     }
 
-    private fun drawGround(c: Canvas, s: GameState, w: World) {
-        for (p in groundPaths.values) p.rewind()
-        val n = s.size
-        val b = visibleTileBounds(n)
-        val cliffL = shade(cCliff, 0.85f); val cliffR = shade(cCliff, 0.7f)
-        val waterSideL = shade(cWater, 0.85f); val waterSideR = shade(cWater, 0.7f)
-        for (y in b[1]..b[3]) for (x in b[0]..b[2]) {
-            if (!cam.visible(x + 0.5f, y + 0.5f, 1.5f)) continue
-            val t = s.terrain[s.idx(x, y)]
-            val col = when (t) {
-                Terrain.GRASS, Terrain.FOREST -> if ((x + y) and 1 == 0) cGrass else cGrass2
+    /** Cara frontal izquierda (lado vy+1) de la celda, entre las alturas zTop y zBottom. */
+    private fun addLeftFace(p: Path, cx: Int, cy: Int, zTop: Float, zBottom: Float) {
+        val vx0 = cx.toFloat(); val vy1 = cy + 1f; val vx1 = vx0 + 1f
+        addQuad(p, cam.sx(vx0, vy1), cam.sy(vx0, vy1, zTop), cam.sx(vx1, vy1), cam.sy(vx1, vy1, zTop), cam.sx(vx1, vy1), cam.sy(vx1, vy1, zBottom), cam.sx(vx0, vy1), cam.sy(vx0, vy1, zBottom))
+    }
+
+    /** Cara frontal derecha (lado vx+1) de la celda. */
+    private fun addRightFace(p: Path, cx: Int, cy: Int, zTop: Float, zBottom: Float) {
+        val vx1 = cx + 1f; val vy0 = cy.toFloat(); val vy1 = vy0 + 1f
+        addQuad(p, cam.sx(vx1, vy0), cam.sy(vx1, vy0, zTop), cam.sx(vx1, vy1), cam.sy(vx1, vy1, zTop), cam.sx(vx1, vy1), cam.sy(vx1, vy1, zBottom), cam.sx(vx1, vy0), cam.sy(vx1, vy0, zBottom))
+    }
+
+    private val cliffL by lazy { shade(cCliff, 0.85f) }
+    private val cliffR by lazy { shade(cCliff, 0.7f) }
+    private val waterSideL by lazy { shade(cWater, 0.85f) }
+    private val waterSideR by lazy { shade(cWater, 0.7f) }
+
+    /**
+     * Un tile del suelo en la celda de vista (cx, cy): cima a zTop y, hacia cada vecino frontal más bajo, la cara
+     * que baja hasta él. Si el vecino es agua (bank ≥ 0 = altura de su orilla) el tramo por debajo de la orilla
+     * se pinta con el tono del agua: es el "borde del agua" que define el tamaño del bloque.
+     */
+    private fun addTile(cx: Int, cy: Int, zTop: Float, colTop: Int, zLeft: Float, bankLeft: Float, zRight: Float, bankRight: Float) {
+        addTopCell(groundPath(colTop), cx, cy, zTop)
+        if (zLeft < zTop - 1e-3f) {
+            if (bankLeft >= 0f && bankLeft < zTop) { addLeftFace(groundPath(cliffL), cx, cy, zTop, bankLeft); addLeftFace(groundPath(waterSideL), cx, cy, bankLeft, zLeft) }
+            else if (bankLeft >= 0f) addLeftFace(groundPath(waterSideL), cx, cy, zTop, zLeft)
+            else addLeftFace(groundPath(cliffL), cx, cy, zTop, zLeft)
+        }
+        if (zRight < zTop - 1e-3f) {
+            if (bankRight >= 0f && bankRight < zTop) { addRightFace(groundPath(cliffR), cx, cy, zTop, bankRight); addRightFace(groundPath(waterSideR), cx, cy, bankRight, zRight) }
+            else if (bankRight >= 0f) addRightFace(groundPath(waterSideR), cx, cy, zTop, zRight)
+            else addRightFace(groundPath(cliffR), cx, cy, zTop, zRight)
+        }
+    }
+
+    /** Colores de cima por terreno, nivel y damero; las cotas altas van un poco más claras para leer el relieve. */
+    private val topColors = IntArray(7 * (Terrain.MAX_LEVEL + 1) * 2).also { arr ->
+        for (t in 0 until 7) for (lv in 0..Terrain.MAX_LEVEL) for (k in 0 until 2) {
+            val base = when (t) {
+                Terrain.GRASS, Terrain.FOREST -> if (k == 0) cGrass else cGrass2
                 Terrain.SAND -> cSand
                 Terrain.ROCK -> cRockGround
                 Terrain.WATER -> cWater
                 Terrain.PATH -> cPath
                 else -> cBridge
             }
-            val z = if (t == Terrain.WATER) -0.25f else 0f
-            addTop(groundPath(col), x.toFloat(), y.toFloat(), z, 1f, 1f)
-            if (t == Terrain.WATER) {
-                // paredes del hueco de agua hacia el fondo (lado visible)
-                addSideFaces(x.toFloat(), y.toFloat(), -0.25f, 1f, 1f, 0.25f, waterSideL, waterSideR, onlyInner = true, s = s)
-            }
-            // acantilados en el borde de la isla
-            val edgeTile = x == 0 || y == 0 || x == n - 1 || y == n - 1
-            if (edgeTile) addSideFaces(x.toFloat(), y.toFloat(), -0.6f, 1f, 1f, 0.6f, cliffL, cliffR, onlyInner = false, s = s, borderOnly = true)
-        }
-        for ((col, p) in groundPaths) { if (!p.isEmpty) { paint.color = col; c.drawPath(p, paint) } }
-        // regiones
-        if (showRegions || highlightRegion > 0) {
-            for (y in b[1]..b[3]) for (x in b[0]..b[2]) {
-                if (!cam.visible(x + 0.5f, y + 0.5f, 1.5f)) continue
-                val r = w.grid.region[s.idx(x, y)]
-                if (r > 0 && (showRegions || r == highlightRegion)) {
-                    path.rewind(); addTop(path, x.toFloat(), y.toFloat(), 0.01f, 1f, 1f)
-                    paint.color = if (r == highlightRegion) 0x66FFFFFF else 0x2EFFFFFF
-                    c.drawPath(path, paint)
-                }
-            }
+            arr[(t * (Terrain.MAX_LEVEL + 1) + lv) * 2 + k] = if (t == Terrain.WATER) base else shade(base, 1f + 0.055f * lv)
         }
     }
 
-    /** Caras laterales visibles de una caja en el suelo, añadidas a los paths por color. */
-    private fun addSideFaces(x: Float, y: Float, z: Float, w: Float, d: Float, h: Float, colL: Int, colR: Int, onlyInner: Boolean, s: GameState, borderOnly: Boolean = false) {
-        // esquinas en vista
-        val vx0 = min(cam.toViewX(x, y), cam.toViewX(x + w, y + d)); val vx1 = max(cam.toViewX(x, y), cam.toViewX(x + w, y + d))
-        val vy0 = min(cam.toViewY(x, y), cam.toViewY(x + w, y + d)); val vy1 = max(cam.toViewY(x, y), cam.toViewY(x + w, y + d))
-        // cara izquierda (vy = vy1) y derecha (vx = vx1)
-        if (borderOnly) {
-            // solo dibujar si el lado da al mar
-            val (lx, ly) = Pair(cam.viewToWorldX(vx0 + 0.5f, vy1 + 0.5f), cam.viewToWorldY(vx0 + 0.5f, vy1 + 0.5f))
-            if (!s.inBounds(floor(lx).toInt(), floor(ly).toInt())) {
-                val p = groundPath(colL)
-                addQuad(p, cam.sx(vx0, vy1), cam.sy(vx0, vy1, z + h), cam.sx(vx1, vy1), cam.sy(vx1, vy1, z + h), cam.sx(vx1, vy1), cam.sy(vx1, vy1, z), cam.sx(vx0, vy1), cam.sy(vx0, vy1, z))
-            }
-            val (rx, ry) = Pair(cam.viewToWorldX(vx1 + 0.5f, vy0 + 0.5f), cam.viewToWorldY(vx1 + 0.5f, vy0 + 0.5f))
-            if (!s.inBounds(floor(rx).toInt(), floor(ry).toInt())) {
-                val p = groundPath(colR)
-                addQuad(p, cam.sx(vx1, vy0), cam.sy(vx1, vy0, z + h), cam.sx(vx1, vy1), cam.sy(vx1, vy1, z + h), cam.sx(vx1, vy1), cam.sy(vx1, vy1, z), cam.sx(vx1, vy0), cam.sy(vx1, vy0, z))
-            }
-            return
+    /** Suelo y objetos intercalados por diagonal de vista (ver la nota de la clase). */
+    private fun drawGroundAndObjects(c: Canvas, s: GameState) {
+        val n = s.size
+        val b = visibleTileBounds(n)
+        // rango de celdas de vista que cubre el rectángulo visible de mundo
+        var cxMin = Int.MAX_VALUE; var cxMax = Int.MIN_VALUE; var cyMin = Int.MAX_VALUE; var cyMax = Int.MIN_VALUE
+        for ((wx, wy) in listOf(b[0] to b[1], b[2] to b[1], b[0] to b[3], b[2] to b[3])) {
+            val cx = floor(cam.toViewX(wx + 0.5f, wy + 0.5f)).toInt(); val cy = floor(cam.toViewY(wx + 0.5f, wy + 0.5f)).toInt()
+            cxMin = min(cxMin, cx); cxMax = max(cxMax, cx); cyMin = min(cyMin, cy); cyMax = max(cyMax, cy)
         }
-        if (onlyInner) {
-            // paredes del agua: las caras traseras (vy0 / vx0) son las visibles desde dentro del hueco
-            val (lx, ly) = Pair(cam.viewToWorldX(vx0 - 0.5f, vy0 + 0.5f), cam.viewToWorldY(vx0 - 0.5f, vy0 + 0.5f))
-            if (s.inBounds(floor(lx).toInt(), floor(ly).toInt()) && s.terrainAt(floor(lx).toInt(), floor(ly).toInt()) != Terrain.WATER) {
-                val p = groundPath(colR)
-                addQuad(p, cam.sx(vx0, vy0), cam.sy(vx0, vy0, z + h), cam.sx(vx0, vy1), cam.sy(vx0, vy1, z + h), cam.sx(vx0, vy1), cam.sy(vx0, vy1, z), cam.sx(vx0, vy0), cam.sy(vx0, vy0, z))
+        val dMin = cxMin + cyMin; val dMax = cxMax + cyMax
+        var oi = 0
+        while (oi < flat.size && flat[oi].col < dMin) drawBox(c, flat[oi++])
+        beginGround()
+        for (d in dMin..dMax) {
+            for (cx in max(cxMin, d - cyMax)..min(cxMax, d - cyMin)) {
+                val cy = d - cx
+                val wx = floor(cam.viewToWorldX(cx + 0.5f, cy + 0.5f)).toInt(); val wy = floor(cam.viewToWorldY(cx + 0.5f, cy + 0.5f)).toInt()
+                if (!s.inBounds(wx, wy) || !cam.visible(wx + 0.5f, wy + 0.5f, 1.5f)) continue
+                val i = s.idx(wx, wy)
+                val t = s.terrain[i]
+                val zTop = s.groundZ(i)
+                val col = topColors[(t * (Terrain.MAX_LEVEL + 1) + s.height[i]) * 2 + ((wx + wy) and 1)]
+                // vecinos frontales: izquierda (cx, cy+1) y derecha (cx+1, cy)
+                val lx = floor(cam.viewToWorldX(cx + 0.5f, cy + 1.5f)).toInt(); val ly = floor(cam.viewToWorldY(cx + 0.5f, cy + 1.5f)).toInt()
+                val rx = floor(cam.viewToWorldX(cx + 1.5f, cy + 0.5f)).toInt(); val ry = floor(cam.viewToWorldY(cx + 1.5f, cy + 0.5f)).toInt()
+                var zl = Terrain.SEA_Z; var bl = -1f; var zr = Terrain.SEA_Z; var br = -1f
+                if (s.inBounds(lx, ly)) { val li = s.idx(lx, ly); zl = s.groundZ(li); if (s.terrain[li] == Terrain.WATER) bl = s.height[li] * Terrain.STEP }
+                if (s.inBounds(rx, ry)) { val ri = s.idx(rx, ry); zr = s.groundZ(ri); if (s.terrain[ri] == Terrain.WATER) br = s.height[ri] * Terrain.STEP }
+                addTile(cx, cy, zTop, col, zl, bl, zr, br)
             }
-            val (rx, ry) = Pair(cam.viewToWorldX(vx0 + 0.5f, vy0 - 0.5f), cam.viewToWorldY(vx0 + 0.5f, vy0 - 0.5f))
-            if (s.inBounds(floor(rx).toInt(), floor(ry).toInt()) && s.terrainAt(floor(rx).toInt(), floor(ry).toInt()) != Terrain.WATER) {
-                val p = groundPath(colL)
-                addQuad(p, cam.sx(vx0, vy0), cam.sy(vx0, vy0, z + h), cam.sx(vx1, vy0), cam.sy(vx1, vy0, z + h), cam.sx(vx1, vy0), cam.sy(vx1, vy0, z), cam.sx(vx0, vy0), cam.sy(vx0, vy0, z))
-            }
+            flushGround(c)
+            while (oi < flat.size && flat[oi].col <= d) drawBox(c, flat[oi++])
         }
+        while (oi < flat.size) drawBox(c, flat[oi++])
     }
 
     // ------------------------------------------------------------------ cajas
@@ -246,16 +276,17 @@ class IsoRenderer(val cam: IsoCamera) {
             val t = s.terrain[s.idx(x, y)]
             if (t != Terrain.FOREST && t != Terrain.ROCK) continue
             if (!cam.visible(x + 0.5f, y + 0.5f, 2f)) continue
+            val gz = s.groundZ(x, y)
             if (t == Terrain.FOREST) {
                 val h = 0.9f + ((x * 7 + y * 13) % 5) * 0.12f
                 val o = obj(x.toFloat(), y.toFloat())
-                o.add(RBox(x + 0.4f, y + 0.4f, 0f, 0.2f, 0.2f, h * 0.45f, cTrunk))
-                o.add(RBox(x + 0.15f, y + 0.15f, h * 0.45f, 0.7f, 0.7f, h * 0.55f, if ((x + y) % 3 == 0) cLeaf2 else cLeaf))
-                o.add(RBox(x + 0.3f, y + 0.3f, h, 0.4f, 0.4f, 0.25f, cLeaf2))
+                o.add(RBox(x + 0.4f, y + 0.4f, gz, 0.2f, 0.2f, h * 0.45f, cTrunk))
+                o.add(RBox(x + 0.15f, y + 0.15f, gz + h * 0.45f, 0.7f, 0.7f, h * 0.55f, if ((x + y) % 3 == 0) cLeaf2 else cLeaf))
+                o.add(RBox(x + 0.3f, y + 0.3f, gz + h, 0.4f, 0.4f, 0.25f, cLeaf2))
             } else if (t == Terrain.ROCK) {
                 val o = obj(x.toFloat(), y.toFloat())
-                o.add(RBox(x + 0.1f, y + 0.2f, 0f, 0.6f, 0.6f, 0.5f, cRock))
-                o.add(RBox(x + 0.5f, y + 0.55f, 0f, 0.4f, 0.35f, 0.3f, shade(cRock, 0.9f)))
+                o.add(RBox(x + 0.1f, y + 0.2f, gz, 0.6f, 0.6f, 0.5f, cRock))
+                o.add(RBox(x + 0.5f, y + 0.55f, gz, 0.4f, 0.35f, 0.3f, shade(cRock, 0.9f)))
             }
         }
         // vallas
@@ -270,26 +301,29 @@ class IsoRenderer(val cam: IsoCamera) {
         // edificios
         for ((i, bd) in s.buildings.withIndex()) {
             if (!onScreen(bd.cx, bd.cy, 4f)) continue
-            addBuilding(bd, i == selectedBuildingIndex(s), time)
+            addBuilding(bd, i == selectedBuildingIndex(s), time, bankZ(s, bd.x, bd.y))
         }
         // cadáveres
         for (c in s.corpses) if (onScreen(c.x, c.y, 3f)) {
             val def = GameData.species(c.species)
             val scale = DinoModels.scaleOf(def.size)
+            val gz = groundZAt(s, c.x, c.y)
             val o = obj(c.x - 0.6f * scale, c.y - 0.6f * scale, 1.2f * scale, 1.2f * scale, 0.2f)
-            DinoModels.buildCorpse(c.x, c.y, c.facing, def) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z, w, dd, h, color)) }
+            DinoModels.buildCorpse(c.x, c.y, c.facing, def) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z + gz, w, dd, h, color)) }
             // moscas
-            val fz = 0.5f * scale + 0.1f * sin(time * 7f + c.id)
+            val fz = gz + 0.5f * scale + 0.1f * sin(time * 7f + c.id)
             o.add(RBox(c.x + 0.2f * sin(time * 3f + c.id), c.y + 0.2f * kotlin.math.cos(time * 2.3f + c.id), fz, 0.06f, 0.06f, 0.06f, 0xFF2B2F33.toInt()))
         }
         // dinos
-        for (d in s.dinos) if (onScreen(d.x, d.y, 4f)) addDino(d, time)
+        for (d in s.dinos) if (onScreen(d.x, d.y, 4f)) addDino(d, time, groundZAt(s, d.x, d.y))
         // visitantes
-        for (v in s.visitors) if (onScreen(v.x, v.y, 2f)) addVisitor(v)
-        // fantasma
+        for (v in s.visitors) if (onScreen(v.x, v.y, 2f)) addVisitor(v, groundZAt(s, v.x, v.y))
+        // fantasma: apoyado en la cota más alta de su huella
         ghost?.let { g ->
+            var gz = 0f
+            for (yy in g.y until g.y + g.h) for (xx in g.x until g.x + g.w) if (s.inBounds(xx, yy)) gz = max(gz, bankZ(s, xx, yy))
             val o = obj(g.x.toFloat(), g.y.toFloat(), g.w.toFloat(), g.h.toFloat(), 0.5f)
-            o.add(RBox(g.x.toFloat(), g.y.toFloat(), 0f, g.w.toFloat(), g.h.toFloat(), g.height, if (g.ok) 0xFF7BE07B.toInt() else 0xFFE06060.toInt(), 150))
+            o.add(RBox(g.x.toFloat(), g.y.toFloat(), gz, g.w.toFloat(), g.h.toFloat(), g.height, if (g.ok) 0xFF7BE07B.toInt() else 0xFFE06060.toInt(), 150))
         }
         // plano de vallas pendiente
         if (planFenceType != 0) {
@@ -301,11 +335,23 @@ class IsoRenderer(val cam: IsoCamera) {
                 if (!onScreen(e.x.toFloat(), e.y.toFloat(), 2f)) continue
                 val col = if (i < ok.size && ok[i]) 0xFF7BE07B.toInt() else 0xFFE06060.toInt()
                 val x = e.x.toFloat(); val y = e.y.toFloat()
+                val gz = edgeZ(s, e)
                 val o = if (e.h) obj(x, y - th / 2f, 1f, th, 0.5f) else obj(x - th / 2f, y, th, 1f, 0.5f)
-                if (e.h) o.add(RBox(x, y - th / 2f, 0f, 1f, th, height, col, 160)) else o.add(RBox(x - th / 2f, y, 0f, th, 1f, height, col, 160))
+                if (e.h) o.add(RBox(x, y - th / 2f, gz, 1f, th, height, col, 160)) else o.add(RBox(x - th / 2f, y, gz, th, 1f, height, col, 160))
             }
         }
     }
+
+    /** Altura de la orilla del tile (el agua cuenta por su borde, no por su superficie). */
+    private fun bankZ(s: GameState, x: Int, y: Int): Float = if (s.inBounds(x, y)) s.levelAt(x, y) * Terrain.STEP else 0f
+    /** Altura del suelo bajo una posición continua. */
+    private fun groundZAt(s: GameState, x: Float, y: Float): Float {
+        val tx = floor(x).toInt(); val ty = floor(y).toInt()
+        return if (s.inBounds(tx, ty)) s.groundZ(tx, ty) else 0f
+    }
+    /** Base de una valla: la orilla más alta de los dos tiles que separa. */
+    private fun edgeZ(s: GameState, e: EdgeRef): Float =
+        if (e.h) max(bankZ(s, e.x, e.y - 1), bankZ(s, e.x, e.y)) else max(bankZ(s, e.x - 1, e.y), bankZ(s, e.x, e.y))
 
     private fun selectedBuildingIndex(s: GameState): Int = if (selectedBuilding < 0) -1 else s.buildings.indexOfFirst { it.id == selectedBuilding }
 
@@ -319,21 +365,22 @@ class IsoRenderer(val cam: IsoCamera) {
         if (type == Fence.ELECTRIC) col = if (w.grid.edgePowered(e)) 0xFF6EC6FF.toInt() else 0xFF5A6E7A.toInt()
         if (hp > 0 && hp < Fence.hp[type] / 2) col = shade(col, 0.75f)
         val x = e.x.toFloat(); val y = e.y.toFloat()
+        val gz = edgeZ(w.s, e)
         val o = if (e.h) obj(x, y - th / 2f, 1f, th) else obj(x - th / 2f, y, th, 1f)
         val broken = hp <= 0
         if (broken || open) {
             // solo postes
             val hh = if (open) height * 0.6f else height * 0.5f
-            if (e.h) { o.add(RBox(x, y - th / 2f, 0f, th, th, hh, col)); o.add(RBox(x + 1f - th, y - th / 2f, 0f, th, th, hh, col)) }
-            else { o.add(RBox(x - th / 2f, y, 0f, th, th, hh, col)); o.add(RBox(x - th / 2f, y + 1f - th, 0f, th, th, hh, col)) }
+            if (e.h) { o.add(RBox(x, y - th / 2f, gz, th, th, hh, col)); o.add(RBox(x + 1f - th, y - th / 2f, gz, th, th, hh, col)) }
+            else { o.add(RBox(x - th / 2f, y, gz, th, th, hh, col)); o.add(RBox(x - th / 2f, y + 1f - th, gz, th, th, hh, col)) }
         } else {
-            if (e.h) o.add(RBox(x, y - th / 2f, 0f, 1f, th, height, col)) else o.add(RBox(x - th / 2f, y, 0f, th, 1f, height, col))
+            if (e.h) o.add(RBox(x, y - th / 2f, gz, 1f, th, height, col)) else o.add(RBox(x - th / 2f, y, gz, th, 1f, height, col))
             if (type == Fence.HEAVY || type == Fence.MEDIUM) {
                 // travesaño superior más oscuro
-                if (e.h) o.add(RBox(x, y - th, height, 1f, th * 2f, 0.06f, shade(col, 0.8f))) else o.add(RBox(x - th, y, height, th * 2f, 1f, 0.06f, shade(col, 0.8f)))
+                if (e.h) o.add(RBox(x, y - th, gz + height, 1f, th * 2f, 0.06f, shade(col, 0.8f))) else o.add(RBox(x - th, y, gz + height, th * 2f, 1f, 0.06f, shade(col, 0.8f)))
             }
         }
-        if (selectedEdge == e) o.add(RBox(if (e.h) x else x - 0.2f, if (e.h) y - 0.2f else y, height + 0.15f, if (e.h) 1f else 0.4f, if (e.h) 0.4f else 1f, 0.05f, Color.WHITE, 200))
+        if (selectedEdge == e) o.add(RBox(if (e.h) x else x - 0.2f, if (e.h) y - 0.2f else y, gz + height + 0.15f, if (e.h) 1f else 0.4f, if (e.h) 0.4f else 1f, 0.05f, Color.WHITE, 200))
     }
 
     private val cWhite = 0xFFF4F1EA.toInt()
@@ -344,7 +391,7 @@ class IsoRenderer(val cam: IsoCamera) {
     private val cYellow = 0xFFF2C14E.toInt()
     private val cMetal = 0xFF6E7F8C.toInt()
 
-    private fun addBuilding(b: Building, selected: Boolean, time: Float) {
+    private fun addBuilding(b: Building, selected: Boolean, time: Float, gz: Float) {
         val def = b.def
         val x = b.x.toFloat(); val y = b.y.toFloat(); val w = b.w.toFloat(); val h = b.h.toFloat()
         val o = obj(x, y, w, h)
@@ -352,7 +399,8 @@ class IsoRenderer(val cam: IsoCamera) {
         val unpowered = def.needsPower && !b.powered
         if (unpowered) col = shade(col, 0.6f)
         val H = def.height
-        fun box(bx: Float, by: Float, bz: Float, bw: Float, bd: Float, bh: Float, c: Int, a: Int = 255) = o.add(RBox(bx, by, bz, bw, bd, bh, c, a))
+        // todas las cajas del modelo se apoyan en la cota del suelo (los edificios exigen terreno llano)
+        fun box(bx: Float, by: Float, bz: Float, bw: Float, bd: Float, bh: Float, c: Int, a: Int = 255) = o.add(RBox(bx, by, bz + gz, bw, bd, bh, c, a))
         when (def.id) {
             "feeder_herb", "feeder_carn" -> {
                 box(x + 0.15f, y + 0.15f, 0f, 0.7f, 0.7f, 0.25f, shade(col, 0.8f))
@@ -481,11 +529,11 @@ class IsoRenderer(val cam: IsoCamera) {
         if (selected) box(x - 0.1f, y - 0.1f, 0.02f, w + 0.2f, h + 0.2f, 0f, Color.WHITE, 120)
     }
 
-    private fun addDino(d: Dino, time: Float) {
+    private fun addDino(d: Dino, time: Float, gz: Float) {
         val def = d.def
         val scale = DinoModels.scaleOf(def.size)
         val o = obj(d.x - 0.6f * scale, d.y - 0.6f * scale, 1.2f * scale, 1.2f * scale, 0.3f)
-        val top = DinoModels.build(d) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z, w, dd, h, color)) }
+        val top = DinoModels.build(d) { x, y, z, w, dd, h, color -> o.add(RBox(x, y, z + gz, w, dd, h, color)) } + gz
         // burbujas de estado
         val cx = d.x; val cy = d.y
         val bz = top + 0.3f + 0.08f * sin(time * 4f)
@@ -498,12 +546,12 @@ class IsoRenderer(val cam: IsoCamera) {
             d.stress >= 40f -> o.add(RBox(cx - bs / 2f, cy - bs / 2f, bz, bs, bs, bs, 0xFFF2C14E.toInt()))
         }
         // sombra plana y anillo de selección
-        o.addRaw(RBox(cx - 0.45f * scale, cy - 0.35f * scale, 0.005f, 0.9f * scale, 0.7f * scale, 0f, 0xFF000000.toInt(), 55))
-        if (d.id == selectedDino) o.add(RBox(cx - 0.7f * scale, cy - 0.7f * scale, 0.01f, 1.4f * scale, 1.4f * scale, 0f, Color.WHITE, 130))
+        o.addRaw(RBox(cx - 0.45f * scale, cy - 0.35f * scale, gz + 0.005f, 0.9f * scale, 0.7f * scale, 0f, 0xFF000000.toInt(), 55))
+        if (d.id == selectedDino) o.add(RBox(cx - 0.7f * scale, cy - 0.7f * scale, gz + 0.01f, 1.4f * scale, 1.4f * scale, 0f, Color.WHITE, 130))
     }
 
-    private fun addVisitor(v: Visitor) {
-        val hop = if (v.path.isNotEmpty()) abs(sin(v.hop)) * (if (v.state == VisitorState.FLEE) 0.16f else 0.08f) else 0f
+    private fun addVisitor(v: Visitor, gz: Float) {
+        val hop = gz + (if (v.path.isNotEmpty()) abs(sin(v.hop)) * (if (v.state == VisitorState.FLEE) 0.16f else 0.08f) else 0f)
         val o = obj(v.x - 0.15f, v.y - 0.15f, 0.3f, 0.3f, 0.2f)
         o.add(RBox(v.x - 0.09f, v.y - 0.09f, hop, 0.18f, 0.18f, 0.18f, cLegs))
         o.add(RBox(v.x - 0.12f, v.y - 0.12f, 0.18f + hop, 0.24f, 0.24f, 0.28f, v.color))
@@ -514,35 +562,57 @@ class IsoRenderer(val cam: IsoCamera) {
             o.add(RBox(v.x - 0.05f, v.y - 0.05f, 0.8f + hop, 0.1f, 0.1f, 0.06f, 0xFFE85A4D.toInt()))
             o.add(RBox(v.x - 0.2f, v.y - 0.04f, 0.4f + hop, 0.08f, 0.08f, 0.3f, cSkin))
             o.add(RBox(v.x + 0.12f, v.y - 0.04f, 0.4f + hop, 0.08f, 0.08f, 0.3f, cSkin))
-        } else if (v.comfort() < 40f) o.add(RBox(v.x - 0.08f, v.y - 0.08f, 0.85f, 0.16f, 0.16f, 0.16f, 0xFF9AA5B1.toInt()))
+        } else if (v.comfort() < 40f) o.add(RBox(v.x - 0.08f, v.y - 0.08f, gz + 0.85f, 0.16f, 0.16f, 0.16f, 0xFF9AA5B1.toInt()))
     }
 
     // ------------------------------------------------------------------ superposiciones
+    /** Rombo de un tile de mundo justo por encima de su suelo. */
+    private fun tileDiamond(s: GameState, x: Int, y: Int, lift: Float) {
+        val z = s.groundZ(x, y) + lift
+        val x0 = x.toFloat(); val y0 = y.toFloat()
+        path.rewind()
+        path.moveTo(cam.worldSx(x0, y0), cam.worldSy(x0, y0, z))
+        path.lineTo(cam.worldSx(x0 + 1f, y0), cam.worldSy(x0 + 1f, y0, z))
+        path.lineTo(cam.worldSx(x0 + 1f, y0 + 1f), cam.worldSy(x0 + 1f, y0 + 1f, z))
+        path.lineTo(cam.worldSx(x0, y0 + 1f), cam.worldSy(x0, y0 + 1f, z))
+        path.close()
+    }
+
     private fun drawOverlays(c: Canvas, w: World) {
+        val s = w.s
+        // regiones
+        if (showRegions || highlightRegion > 0) {
+            val b = visibleTileBounds(s.size)
+            for (y in b[1]..b[3]) for (x in b[0]..b[2]) {
+                if (!cam.visible(x + 0.5f, y + 0.5f, 1.5f)) continue
+                val r = w.grid.region[s.idx(x, y)]
+                if (r > 0 && (showRegions || r == highlightRegion)) {
+                    tileDiamond(s, x, y, 0.01f)
+                    paint.color = if (r == highlightRegion) 0x66FFFFFF else 0x2EFFFFFF
+                    c.drawPath(path, paint)
+                }
+            }
+        }
         // plano de caminos pendiente: rombos translúcidos
         if (planFenceType == 0 && planKeys.isNotEmpty()) {
             val n = w.n; val keys = planKeys; val ok = planOk
             for (i in keys.indices) {
-                val x0 = (keys[i] % n).toFloat(); val y0 = (keys[i] / n).toFloat()
-                if (!onScreen(x0 + 0.5f, y0 + 0.5f, 1f)) continue
-                path.rewind()
-                path.moveTo(cam.worldSx(x0, y0), cam.worldSy(x0, y0, 0.04f))
-                path.lineTo(cam.worldSx(x0 + 1f, y0), cam.worldSy(x0 + 1f, y0, 0.04f))
-                path.lineTo(cam.worldSx(x0 + 1f, y0 + 1f), cam.worldSy(x0 + 1f, y0 + 1f, 0.04f))
-                path.lineTo(cam.worldSx(x0, y0 + 1f), cam.worldSy(x0, y0 + 1f, 0.04f))
-                path.close()
+                val x0 = keys[i] % n; val y0 = keys[i] / n
+                if (!s.inBounds(x0, y0) || !onScreen(x0 + 0.5f, y0 + 0.5f, 1f)) continue
+                tileDiamond(s, x0, y0, 0.04f)
                 paint.color = if (i < ok.size && ok[i]) 0x997BE07B.toInt() else 0x99E06060.toInt()
                 c.drawPath(path, paint)
             }
         }
-        // pincel: círculo sobre el suelo
+        // pincel: círculo que sigue el relieve
         brush?.let { b ->
             val cx = b[0]; val cy = b[1]; val r = b[2]
             path.rewind()
             for (k in 0 until 24) {
                 val a = k * (Math.PI * 2 / 24)
                 val wx = cx + r * Math.cos(a).toFloat(); val wy = cy + r * Math.sin(a).toFloat()
-                if (k == 0) path.moveTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, 0.05f)) else path.lineTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, 0.05f))
+                val z = groundZAt(s, wx, wy) + 0.05f
+                if (k == 0) path.moveTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, z)) else path.lineTo(cam.worldSx(wx, wy), cam.worldSy(wx, wy, z))
             }
             path.close()
             paint.color = 0x33FFFFFF; c.drawPath(path, paint)

@@ -11,7 +11,7 @@ class BuildPlanTest {
         val s = IslandGen.generate(GameData.islands.first { it.sandbox }, 3L)
         val w = World(s)
         // zona de pruebas plana: 12x12 de hierba lejos de la entrada
-        for (y in 2..13) for (x in 2..13) s.terrain[s.idx(x, y)] = Terrain.GRASS
+        for (y in 2..13) for (x in 2..13) { s.terrain[s.idx(x, y)] = Terrain.GRASS; s.height[s.idx(x, y)] = 0 }
         w.grid.rebuildAll()
         return w
     }

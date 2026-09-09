@@ -78,6 +78,22 @@ class IsoCamera(var mapSize: Int) : ViewMap {
         return Pair(floor(wx).toInt(), floor(wy).toInt())
     }
 
+    /**
+     * Pantalla → mundo teniendo en cuenta el relieve: se prueba cada cota posible de arriba abajo y se acepta la
+     * primera cuyo tile está de verdad a esa altura (`groundZ` devuelve null fuera del mapa). Así un toque sobre la
+     * cima de un tile alto cae en ese tile y no en el que queda detrás. Si nada cuadra (una cara de acantilado,
+     * el mar) se usa el suelo a cota cero.
+     */
+    fun pickWorld(px: Float, py: Float, groundZ: (Int, Int) -> Float?): Pair<Float, Float> {
+        for (lv in com.momentadesunt.cretaceouspark.core.Terrain.MAX_LEVEL downTo -1) {
+            val z = lv * com.momentadesunt.cretaceouspark.core.Terrain.STEP
+            val (wx, wy) = screenToWorld(px, py + z * zUnit)
+            val gz = groundZ(floor(wx).toInt(), floor(wy).toInt()) ?: continue
+            if (kotlin.math.abs(gz - z) < 1e-3f) return Pair(wx, wy)
+        }
+        return screenToWorld(px, py)
+    }
+
     /** Desplazar la cámara según un delta de pantalla en píxeles. */
     fun panBy(dpx: Float, dpy: Float) {
         val a = dpx / tileH; val b = dpy / (tileH / 2f)

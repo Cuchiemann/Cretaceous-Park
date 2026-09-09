@@ -39,7 +39,8 @@ class Dino(
     var skin: Int = 0,
     var geneResist: Boolean = false, var geneTemper: Int = 0, // 0 normal, 1 dócil, 2 vistoso
     var hitCd: Float = 0f,
-    var hop: Float = 0f
+    var hop: Float = 0f,
+    var path: MutableList<Int> = mutableListOf()   // tiles pendientes hasta (tx, ty), calculados con la regla de desnivel
 ) {
     val def: SpeciesDef get() = GameData.species(species)
 }
@@ -91,6 +92,8 @@ class GameState(
     val hType: IntArray, val hHp: IntArray, val hFlags: IntArray,   // bordes horizontales: (size+1) filas × size
     val vType: IntArray, val vHp: IntArray, val vFlags: IntArray,   // bordes verticales: size filas × (size+1)
     var money: Double,
+    /** Nivel de cada tile (0..Terrain.MAX_LEVEL). Las partidas antiguas cargan planas. */
+    val height: IntArray = IntArray(size * size),
     var time: Float = 0f,
     var nextId: Int = 1,
     var speed: Int = 1,
@@ -146,6 +149,12 @@ class GameState(
     fun idx(x: Int, y: Int) = y * size + x
     fun inBounds(x: Int, y: Int) = x >= 0 && y >= 0 && x < size && y < size
     fun terrainAt(x: Int, y: Int) = terrain[idx(x, y)]
+    fun levelAt(x: Int, y: Int) = height[idx(x, y)]
+    /** Altura z de la superficie del tile: el agua queda un nivel por debajo de su orilla. */
+    fun groundZ(x: Int, y: Int): Float { val i = idx(x, y); return (height[i] - if (terrain[i] == Terrain.WATER) 1 else 0) * Terrain.STEP }
+    fun groundZ(i: Int): Float = (height[i] - if (terrain[i] == Terrain.WATER) 1 else 0) * Terrain.STEP
+    /** ¿Se puede pasar andando entre dos tiles vecinos? Solo si el desnivel es de un nivel como mucho. */
+    fun stepOk(a: Int, b: Int) = kotlin.math.abs(height[a] - height[b]) <= Terrain.MAX_CLIMB
     fun newId() = nextId++
 
     // Bordes: horizontal (x, y) separa (x, y-1) y (x, y). y ∈ 0..size. Índice y*size + x.

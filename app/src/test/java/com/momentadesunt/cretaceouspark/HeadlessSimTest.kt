@@ -17,6 +17,7 @@ class HeadlessSimTest {
         // despejar solo los rectangulos que usa el parque de prueba (el terreno depende de la semilla)
         fun clear(x0: Int, y0: Int, x1: Int, y1: Int) {
             for (y in y0..y1) for (x in x0..x1) if (s.inBounds(x, y)) {
+                s.height[s.idx(x, y)] = 0   // el parque de prueba se construye en llano
                 when (s.terrainAt(x, y)) {
                     Terrain.FOREST -> w.terraform(TerrainTool.CLEAR_FOREST, x, y)
                     Terrain.ROCK -> w.terraform(TerrainTool.BLAST_ROCK, x, y)
@@ -97,7 +98,7 @@ class HeadlessSimTest {
     fun stressedDinoBreaksFenceAndEscapes() {
         val s = IslandGen.generate(GameData.islandById.getValue("brote"), 7L)
         val w = World(s)
-        for (y in 3..6) for (x in 3..6) if (s.terrainAt(x, y) != Terrain.GRASS) s.terrain[s.idx(x, y)] = Terrain.GRASS
+        for (y in 3..6) for (x in 3..6) { if (s.terrainAt(x, y) != Terrain.GRASS) s.terrain[s.idx(x, y)] = Terrain.GRASS; s.height[s.idx(x, y)] = 0 }
         w.grid.rebuildRegions()
         w.fenceRect(3, 3, 6, 6, Fence.LIGHT)
         val r = w.enclosures().first()
@@ -171,8 +172,8 @@ class TutorialTest {
         assertEquals("paso de camara", 1, s.tutorialStep)
         val entrance = s.buildings.first { it.type == "entrance" }
         val px = entrance.x + 1
-        fun clear(x0: Int, y0: Int, x1: Int, y1: Int) { for (y in y0..y1) for (x in x0..x1) if (s.inBounds(x, y)) when (s.terrainAt(x, y)) {
-            Terrain.FOREST -> w.terraform(TerrainTool.CLEAR_FOREST, x, y); Terrain.ROCK -> w.terraform(TerrainTool.BLAST_ROCK, x, y); Terrain.WATER -> w.terraform(TerrainTool.FILL_WATER, x, y) } }
+        fun clear(x0: Int, y0: Int, x1: Int, y1: Int) { for (y in y0..y1) for (x in x0..x1) if (s.inBounds(x, y)) { s.height[s.idx(x, y)] = 0; when (s.terrainAt(x, y)) {
+            Terrain.FOREST -> w.terraform(TerrainTool.CLEAR_FOREST, x, y); Terrain.ROCK -> w.terraform(TerrainTool.BLAST_ROCK, x, y); Terrain.WATER -> w.terraform(TerrainTool.FILL_WATER, x, y) } } }
         clear(px, 3, px, entrance.y - 2); clear(2, 4, 10, 12); clear(10, 12, px, 12); clear(px + 1, entrance.y - 25, px + 3, entrance.y - 3)
         w.fenceRect(3, 5, 8, 10, Fence.LIGHT)
         repeat(6) { w.tick(0.1f) }; assertEquals("recinto", 2, s.tutorialStep)
@@ -202,10 +203,12 @@ class TutorialTest {
         val s = IslandGen.generate(GameData.islandById.getValue("brote"), 5L)
         s.challenge = "no_carnivores"
         val w = World(s)
-        for (y in 3..8) for (x in 3..8) s.terrain[s.idx(x, y)] = Terrain.GRASS
+        for (y in 3..8) for (x in 3..8) { s.terrain[s.idx(x, y)] = Terrain.GRASS; s.height[s.idx(x, y)] = 0 }
         w.grid.rebuildRegions()
         w.fenceRect(3, 3, 8, 8, Fence.LIGHT)
         val r = w.enclosures().first()
+        for (y in 12..15) for (x in 12..17) { s.terrain[s.idx(x, y)] = Terrain.GRASS; s.height[s.idx(x, y)] = 0 }
+        w.grid.rebuildAll()
         w.placeBuilding("lab", 12, 12); w.placeBuilding("generator", 15, 12)
         s.dna["velociraptor"] = 100; s.dna["gallimimus"] = 100
         assertFalse("el reto bloquea carnívoros", w.canIncubate("velociraptor", r.id).ok)
@@ -221,7 +224,7 @@ class TutorialTest {
         // sonidos emitidos
         var sounds = 0
         w.soundSink = { sounds++ }
-        s.terrain[s.idx(20, 20)] = Terrain.GRASS
+        s.terrain[s.idx(20, 20)] = Terrain.GRASS; s.height[s.idx(20, 20)] = 0
         assertTrue(w.placePath(20, 20).ok)
         assertTrue("sonido de colocación emitido", sounds >= 1)
         // reto tormentas: el siguiente evento es tormenta

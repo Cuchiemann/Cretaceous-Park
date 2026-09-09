@@ -162,7 +162,7 @@ class DinoSim(private val w: World) {
         d.state = DinoState.ESCAPED
         d.region = 0
         d.targetEdge = -1
-        d.tx = d.x; d.ty = d.y
+        d.tx = d.x; d.ty = d.y; d.path.clear()
         w.alert("escape", "¡FUGA! ${d.def.name} está suelto", d.x.toInt(), d.y.toInt(), d.id, 60f)
     }
 
@@ -176,9 +176,6 @@ class DinoSim(private val w: World) {
                 val e = if (d.targetEdge >= 0) EdgeRef.fromKey(d.targetEdge) else null
                 if (e == null || grid.fenceType(e) == 0) { pickTargetEdge(d, info); return }
                 val (mx, my) = edgeMid(e)
-                // tile interior adyacente al borde
-                val (ix, iy) = insideTile(e, d.region)
-                d.tx = ix + 0.5f; d.ty = iy + 0.5f
                 val dist = abs(mx - d.x) + abs(my - d.y)
                 if (dist < 1.1f) {
                     if (grid.fenceHp(e) <= 0) {
@@ -204,7 +201,8 @@ class DinoSim(private val w: World) {
                             else w.alert("attack", "${def.name} golpea la valla (${hp} PV)", e.x, e.y, d.id, 6f)
                         }
                     }
-                } else moveToward(d, speed * 1.2f, dt)
+                } else if (arrived(d)) pickTargetEdge(d, info)   // la ruta acabó lejos del borde: elegir de nuevo
+                else moveToward(d, speed * 1.2f, dt)
             }
             DinoState.SEEK_FOOD -> {
                 if (arrived(d)) {
@@ -225,30 +223,30 @@ class DinoSim(private val w: World) {
                 if (d.stress >= 75f) { pickTargetEdge(d, info); return }
                 if (d.food < 40f) {
                     val f = nearestFeeder(d, def)
-                    if (f != null && f.stock > 0) { setTargetAdjacent(d, f.x, f.y, f.w, f.h); d.state = DinoState.SEEK_FOOD; return }
+                    if (f != null && f.stock > 0 && setTargetAdjacent(d, f.x, f.y, f.w, f.h)) { d.state = DinoState.SEEK_FOOD; return }
                     if (def.diet == Diet.HERBIVORE && def.size == Size.L && info.forest > 0) {
-                        val t = info.tileList.filter { s.terrain[it] == Terrain.FOREST }.minByOrNull { dist2(d, it) }
-                        if (t != null) { d.tx = t % w.n + 0.5f; d.ty = t / w.n + 0.5f; d.state = DinoState.SEEK_FOOD; return }
+                        val trees = info.tileList.filter { s.terrain[it] == Terrain.FOREST }.sortedBy { dist2(d, it) }
+                        for (t in trees.take(4)) if (setTarget(d, t)) { d.state = DinoState.SEEK_FOOD; return }
                     }
                     if (f == null) w.alert("nofeeder", "${def.name}: sin comedero con comida", d.x.toInt(), d.y.toInt(), d.id, 10f)
+                    else if (f.stock > 0) w.alert("nofeeder", "${def.name}: no puede llegar al comedero (desnivel)", d.x.toInt(), d.y.toInt(), d.id, 10f)
                 }
                 if (d.water < 40f) {
-                    val wt = info.tileList.filter { s.terrain[it] == Terrain.WATER }.minByOrNull { dist2(d, it) }
-                    if (wt != null) {
-                        // tile adyacente al agua
-                        val adj = adjacentWalkable(wt % w.n, wt / w.n, d.region)
-                        if (adj != null) { d.tx = adj.first + 0.5f; d.ty = adj.second + 0.5f; d.state = DinoState.SEEK_WATER; return }
+                    val waters = info.tileList.filter { s.terrain[it] == Terrain.WATER }.sortedBy { dist2(d, it) }
+                    for (wt in waters.take(4)) {
+                        // tile adyacente al agua alcanzable
+                        for ((dx, dy) in dirs4) if (setTargetAdjacentTile(d, wt % w.n + dx, wt / w.n + dy)) { d.state = DinoState.SEEK_WATER; return }
                     }
                     val trough = s.buildings.filter { it.def.isWater && grid.regionAt(it.x, it.y) == d.region }.minByOrNull { abs(it.cx - d.x) + abs(it.cy - d.y) }
-                    if (trough != null) { setTargetAdjacent(d, trough.x, trough.y, 1, 1); d.state = DinoState.SEEK_WATER; return }
-                    w.alert("nowater", "${def.name}: sin agua en el recinto", d.x.toInt(), d.y.toInt(), d.id, 10f)
+                    if (trough != null && setTargetAdjacent(d, trough.x, trough.y, 1, 1)) { d.state = DinoState.SEEK_WATER; return }
+                    w.alert("nowater", "${def.name}: ${if (waters.isNotEmpty() || trough != null) "no puede llegar al agua (desnivel)" else "sin agua en el recinto"}", d.x.toInt(), d.y.toInt(), d.id, 10f)
                 }
                 if (arrived(d)) {
                     d.idle -= dt
                     if (d.idle <= 0f) {
                         d.idle = 1f + rnd.nextFloat() * 3f
-                        val cand = info.tileList.filter { abs(it % w.n - d.x) < 5 && abs(it / w.n - d.y) < 5 && grid.dinoWalkable(it % w.n, it / w.n) }
-                        if (cand.isNotEmpty()) { val t = cand[rnd.nextInt(cand.size)]; d.tx = t % w.n + 0.5f; d.ty = t / w.n + 0.5f }
+                        val cand = info.tileList.filter { abs(it % w.n - d.x) < 5 && abs(it / w.n - d.y) < 5 && grid.dinoWalkableIdx(it) }
+                        if (cand.isNotEmpty()) for (k in 0 until 4) if (setTarget(d, cand[rnd.nextInt(cand.size)])) break
                     }
                 } else moveToward(d, speed * 0.6f, dt)
             }
@@ -277,7 +275,12 @@ class DinoSim(private val w: World) {
         }
         if (def.danger >= 5) {
             val v = s.visitors.filter { abs(it.x - d.x) + abs(it.y - d.y) <= 8f }.minByOrNull { abs(it.x - d.x) + abs(it.y - d.y) }
-            if (v != null) { d.tx = v.x; d.ty = v.y; moveToward(d, speed * 1.4f, dt); return }
+            if (v != null) {
+                // persecución por ruta (los desniveles de dos bloques también frenan al dino); se recalcula cada medio segundo
+                d.idle -= dt
+                if (d.idle <= 0f || arrived(d)) { d.idle = 0.5f; setTarget(d, tileOf(v.x, v.y)) }
+                if (!arrived(d)) { moveToward(d, speed * 1.4f, dt); return }
+            }
         }
         if (arrived(d)) {
             d.idle -= dt
@@ -285,9 +288,7 @@ class DinoSim(private val w: World) {
                 d.idle = 1f + rnd.nextFloat() * 2f
                 for (i in 0 until 8) {
                     val tx = floor(d.x).toInt() + rnd.nextInt(-4, 5); val ty = floor(d.y).toInt() + rnd.nextInt(-4, 5)
-                    if (s.inBounds(tx, ty) && grid.regionAt(tx, ty) == 0 && s.terrainAt(tx, ty) != Terrain.WATER && s.terrainAt(tx, ty) != Terrain.ROCK && grid.buildingAt(tx, ty) == null) {
-                        d.tx = tx + 0.5f; d.ty = ty + 0.5f; break
-                    }
+                    if (s.inBounds(tx, ty) && escapedPassable(s.idx(tx, ty)) && setTarget(d, s.idx(tx, ty))) break
                 }
             }
         } else moveToward(d, speed * 0.9f, dt)
@@ -295,9 +296,14 @@ class DinoSim(private val w: World) {
 
     private fun pickTargetEdge(d: Dino, info: RegionInfo) {
         if (info.edges.isEmpty()) { d.state = DinoState.WANDER; return }
-        // primero huecos, luego la más débil
-        val gap = info.edges.firstOrNull { grid.fenceHp(it) <= 0 }
-        val e = gap ?: info.edges.minWithOrNull(compareBy({ Fence.strengthLevel(grid.fenceType(it), grid.edgePowered(it)) }, { grid.fenceHp(it) }, { val (mx, my) = edgeMid(it); abs(mx - d.x) + abs(my - d.y) }))!!
+        // solo bordes cuyo tile interior se alcanza con la regla de desnivel; primero huecos, luego la más débil
+        val reach = grid.reachableFrom(tileOf(d.x, d.y), regionPassable(d.region))
+        val reachable = info.edges.filter { val (ix, iy) = insideTile(it, d.region); s.inBounds(ix, iy) && reach[s.idx(ix, iy)] }
+        if (reachable.isEmpty()) { d.state = DinoState.WANDER; d.targetEdge = -1; d.idle = 2f; return }
+        val gap = reachable.firstOrNull { grid.fenceHp(it) <= 0 }
+        val e = gap ?: reachable.minWithOrNull(compareBy({ Fence.strengthLevel(grid.fenceType(it), grid.edgePowered(it)) }, { grid.fenceHp(it) }, { val (mx, my) = edgeMid(it); abs(mx - d.x) + abs(my - d.y) }))!!
+        val (ix, iy) = insideTile(e, d.region)
+        if (!setTarget(d, s.idx(ix, iy))) { d.state = DinoState.WANDER; d.targetEdge = -1; d.idle = 2f; return }
         d.targetEdge = e.key()
         d.state = DinoState.TO_FENCE
     }
@@ -321,33 +327,60 @@ class DinoSim(private val w: World) {
             .minByOrNull { abs(it.cx - d.x) + abs(it.cy - d.y) }
             .let { f -> if (f != null && f.stock <= 0) s.buildings.filter { it.def.feederDiet == def.diet && grid.regionAt(it.x, it.y) == d.region && it.stock > 0 }.minByOrNull { abs(it.cx - d.x) + abs(it.cy - d.y) } ?: f else f }
 
-    private fun setTargetAdjacent(d: Dino, x: Int, y: Int, bw: Int, bh: Int) {
-        var best: Pair<Int, Int>? = null; var bd = Float.MAX_VALUE
-        for (yy in y - 1..y + bh) for (xx in x - 1..x + bw) {
-            if (xx in x until x + bw && yy in y until y + bh) continue
-            if (!grid.dinoWalkable(xx, yy) || grid.regionAt(xx, yy) != d.region) continue
-            val dist = abs(xx + 0.5f - d.x) + abs(yy + 0.5f - d.y)
-            if (dist < bd) { bd = dist; best = Pair(xx, yy) }
-        }
-        if (best != null) { d.tx = best.first + 0.5f; d.ty = best.second + 0.5f } else { d.tx = x + 0.5f; d.ty = y + 0.5f }
+    // ------------------------------------------------------------------ rutas
+    private val dirs4 = listOf(0 to -1, 1 to 0, 0 to 1, -1 to 0)
+    private fun tileOf(x: Float, y: Float) = s.idx(floor(x).toInt().coerceIn(0, w.n - 1), floor(y).toInt().coerceIn(0, w.n - 1))
+
+    /** Tiles que puede pisar un dino de un recinto: suelo transitable de su misma región. */
+    private fun regionPassable(region: Int): (Int) -> Boolean = { grid.region[it] == region && grid.dinoWalkableIdx(it) }
+    /** Tiles que puede pisar un dino fugado: todo el exterior salvo agua, roca y edificios. */
+    private val escapedPassable: (Int) -> Boolean = { grid.region[it] == 0 && s.terrain[it] != Terrain.WATER && s.terrain[it] != Terrain.ROCK && grid.buildingAt[it] < 0 }
+
+    /**
+     * Fija como objetivo el centro de un tile si hay ruta hasta él (4-conexa y con desnivel máximo de un nivel).
+     * Devuelve false, sin tocar el objetivo actual, si el tile no se alcanza.
+     */
+    private fun setTarget(d: Dino, tile: Int): Boolean {
+        val from = tileOf(d.x, d.y)
+        val path = if (from == tile) mutableListOf() else grid.findPath(from, tile, if (d.state == DinoState.ESCAPED) escapedPassable else regionPassable(d.region))
+        if (from != tile && path.isEmpty()) return false
+        d.path = path; d.tx = tile % w.n + 0.5f; d.ty = tile / w.n + 0.5f
+        return true
     }
 
-    private fun adjacentWalkable(x: Int, y: Int, region: Int): Pair<Int, Int>? {
-        for ((dx, dy) in listOf(0 to -1, 1 to 0, 0 to 1, -1 to 0)) {
-            if (grid.dinoWalkable(x + dx, y + dy) && grid.regionAt(x + dx, y + dy) == region) return Pair(x + dx, y + dy)
+    /** Objetivo en (x, y) si es suelo transitable de la región del dino y hay ruta. */
+    private fun setTargetAdjacentTile(d: Dino, x: Int, y: Int): Boolean =
+        grid.dinoWalkable(x, y) && grid.regionAt(x, y) == d.region && setTarget(d, s.idx(x, y))
+
+    /** Objetivo en el tile libre alcanzable más cercano al perímetro de un edificio. */
+    private fun setTargetAdjacent(d: Dino, x: Int, y: Int, bw: Int, bh: Int): Boolean {
+        val cands = ArrayList<Int>()
+        for (yy in y - 1..y + bh) for (xx in x - 1..x + bw) {
+            if (xx in x until x + bw && yy in y until y + bh) continue
+            if (grid.dinoWalkable(xx, yy) && grid.regionAt(xx, yy) == d.region) cands.add(s.idx(xx, yy))
         }
-        return null
+        cands.sortBy { dist2(d, it) }
+        for (t in cands) if (setTarget(d, t)) return true
+        return false
     }
 
     private fun dist2(d: Dino, t: Int): Float { val x = t % w.n + 0.5f; val y = t / w.n + 0.5f; return (x - d.x) * (x - d.x) + (y - d.y) * (y - d.y) }
-    private fun arrived(d: Dino) = abs(d.tx - d.x) + abs(d.ty - d.y) < 0.1f
+    private fun arrived(d: Dino) = d.path.isEmpty() && abs(d.tx - d.x) + abs(d.ty - d.y) < 0.1f
 
+    /** Avanza por la ruta (centros de tile) y al final en línea recta hasta (tx, ty). */
     private fun moveToward(d: Dino, speed: Float, dt: Float) {
-        val dx = d.tx - d.x; val dy = d.ty - d.y
-        val dist = sqrt(dx * dx + dy * dy)
-        if (dist < 0.001f) return
-        val step = min(dist, speed * dt)
-        d.x += dx / dist * step; d.y += dy / dist * step
-        d.facing = if (abs(dx) > abs(dy)) (if (dx > 0) 1 else 3) else (if (dy > 0) 2 else 0)
+        var budget = speed * dt
+        var guard = 0
+        while (budget > 1e-4f && guard++ < 8) {
+            val wp = d.path.isNotEmpty()
+            val gx = if (wp) d.path[0] % w.n + 0.5f else d.tx
+            val gy = if (wp) d.path[0] / w.n + 0.5f else d.ty
+            val dx = gx - d.x; val dy = gy - d.y
+            val dist = sqrt(dx * dx + dy * dy)
+            if (dist > 1e-3f) d.facing = if (abs(dx) > abs(dy)) (if (dx > 0) 1 else 3) else (if (dy > 0) 2 else 0)
+            if (dist > budget) { d.x += dx / dist * budget; d.y += dy / dist * budget; return }
+            d.x = gx; d.y = gy; budget -= dist
+            if (wp) d.path.removeAt(0) else return
+        }
     }
 }
