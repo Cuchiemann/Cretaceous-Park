@@ -85,8 +85,9 @@ fun CocButton(
                 .padding(horizontal = if (small) 10.dp else 14.dp, vertical = if (small) 5.dp else 8.dp).heightIn(min = if (small) 24.dp else 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
         ) {
-            Text((if (icon != null) "$icon " else "") + text, color = if (enabled) textColor else Color(0xFFEDE8DC), fontWeight = FontWeight.Black, fontSize = if (small) 13.sp else 15.sp, style = shadowStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-            if (sub != null) Text(sub, color = Color.White.copy(alpha = 0.92f), fontSize = if (small) 10.sp else 11.sp, style = shadowStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            // lineHeight explícito: el estilo por defecto de Material3 impone 24 sp de línea y el botón pequeño se hincha.
+            Text((if (icon != null) "$icon " else "") + text, color = if (enabled) textColor else Color(0xFFEDE8DC), fontWeight = FontWeight.Black, fontSize = if (small) 13.sp else 15.sp, lineHeight = if (small) 16.sp else 20.sp, style = shadowStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            if (sub != null) Text(sub, color = Color.White.copy(alpha = 0.92f), fontSize = if (small) 10.sp else 11.sp, lineHeight = if (small) 12.sp else 14.sp, style = shadowStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
     }
 }
@@ -153,7 +154,7 @@ fun CostBadge(text: String, modifier: Modifier = Modifier, color: Color = Pal.go
 @Composable
 fun StatTile(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Pal.text) {
     Column(modifier.clip(RoundedCornerShape(8.dp)).background(Pal.card).border(2.dp, Pal.frameLight.copy(alpha = 0.5f), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, color = valueColor, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text(value, color = valueColor, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text(label, color = Pal.text2, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
     }
 }

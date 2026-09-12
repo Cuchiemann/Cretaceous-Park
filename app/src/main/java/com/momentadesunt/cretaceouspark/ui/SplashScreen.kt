@@ -34,8 +34,8 @@ import com.momentadesunt.cretaceouspark.R
 import kotlinx.coroutines.delay
 
 /**
- * Presentación del estudio, una vez al arrancar: "UNA PRODUCCIÓN DE — MOMENTA DESUNT" con el logo.
- * Mismo ritmo que en Forum Domini: fundido de entrada (0,75 s), pausa (1,5 s) y fundido de salida (0,75 s).
+ * Presentación del estudio, una vez al arrancar: fondo oscuro degradado, a la izquierda "UNA PRODUCCIÓN DE / MOMENTA DESUNT"
+ * (dorado, serif), una barra vertical y a la derecha el logo. Fundido de entrada (0,75 s), pausa (1,5 s) y fundido de salida (0,75 s).
  * Tocar en cualquier sitio la salta. La tipografía es fija (serif clásica), independiente del estilo del juego.
  */
 @Composable
@@ -54,15 +54,19 @@ fun SplashScreen(onDone: () -> Unit) {
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDone() },
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp).alpha(fade.value)) {
-            Text("UNA PRODUCCIÓN DE", color = Pal.ink3, fontSize = 12.sp, fontFamily = FontFamily.SansSerif, letterSpacing = 3.sp)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "MOMENTA DESUNT", color = Pal.gold, fontSize = 30.sp, fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Bold, letterSpacing = 2.sp, textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(18.dp))
-            Image(painter = painterResource(R.drawable.momenta_logo), contentDescription = "Logo de Momenta Desunt", modifier = Modifier.size(190.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(24.dp).alpha(fade.value)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("UNA PRODUCCIÓN DE", color = Pal.ink3, fontSize = 12.sp, fontFamily = FontFamily.SansSerif, letterSpacing = 3.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "MOMENTA DESUNT", color = Pal.gold, fontSize = 30.sp, fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold, letterSpacing = 2.sp, textAlign = TextAlign.Center
+                )
+            }
+            Spacer(Modifier.width(44.dp))
+            Box(Modifier.width(3.dp).height(240.dp).background(Pal.ink3.copy(alpha = 0.6f)))
+            Spacer(Modifier.width(72.dp))
+            Image(painter = painterResource(R.drawable.momenta_logo), contentDescription = "Logo de Momenta Desunt", modifier = Modifier.size(170.dp))
         }
     }
 }

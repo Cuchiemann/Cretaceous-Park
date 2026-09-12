@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,7 +52,7 @@ fun LabScreen(vm: GameViewModel, w: World) {
                         val dna = s.dna[sp.id] ?: 0
                         val known = dna > 0 || s.cloned.contains(sp.id)
                         val ready = dna >= 50
-                        CocCard(Modifier.width(142.dp).height(88.dp), dim = !known, onClick = { st.chosen = sp.id; st.region = -1; st.genes = 0 }, padding = 7) {
+                        CocCard(Modifier.width(142.dp).height(96.dp), dim = !known, onClick = { st.chosen = sp.id; st.region = -1; st.genes = 0 }, padding = 7) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(13.dp).clip(RoundedCornerShape(3.dp)).background(if (known) Color(sp.colorBody) else Pal.grey).border(1.dp, Pal.frame, RoundedCornerShape(3.dp)))
                                 Spacer(Modifier.width(6.dp))
@@ -112,20 +113,14 @@ private fun SpeciesSheet(vm: GameViewModel, w: World, st: IncubState, sp: Specie
                 GeneSquare("Dócil", "ataque ×0,5 · −1 atractivo", st.genes and 4 != 0, g5 && known, "Genes (G5)", Modifier.weight(1f)) { st.genes = if (st.genes and 4 != 0) st.genes and 4.inv() else (st.genes or 4) and 8.inv() }
                 GeneSquare("Vistoso", "+2 atractivo · estrés ×1,3", st.genes and 8 != 0, g5 && known, "Genes (G5)", Modifier.weight(1f)) { st.genes = if (st.genes and 8 != 0) st.genes and 8.inv() else (st.genes or 8) and 4.inv() }
             }
-            if (known) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("ADN $dna %", color = if (dna >= 50) Pal.ok else Pal.goldDark, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                    MiniBar(dna.toFloat(), if (dna >= 50) Pal.green else Pal.gold, Modifier.weight(1f))
-                    CostBadge("${sp.cost}", color = Pal.gold)
-                    Text("${sp.size.incubationSeconds.toInt()} s · viabilidad ${w.viability(sp.id, geneCount)} %" + if (geneCount > 0) " (−5 %/gen)" else "", color = Pal.text2, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
         }
         Column(Modifier.width(200.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val encl = w.enclosures()
             val can = if (!known) Result.fail("Sin ADN") else if (st.region > 0) w.canIncubate(sp.id, st.region) else Result.fail(if (encl.isEmpty()) "Sin recintos cerrados" else "Elige un recinto")
             CocButton("INCUBAR", { vm.act(w.startIncubation(sp.id, st.region, st.genes)) }, Modifier.fillMaxWidth(), enabled = can.ok, icon = "🥚",
-                sub = if (can.ok) "${sp.cost} $ · ${w.viability(sp.id, geneCount)} % viabilidad" else can.reason)
+                sub = if (!known) can.reason else "${money(sp.cost.toFloat())} · ${w.viability(sp.id, geneCount)} % viabilidad")
+            if (known && !can.ok) Text("✖ " + can.reason, color = Pal.red, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 2, lineHeight = 12.sp, overflow = TextOverflow.Ellipsis)
+            if (known) Text("ADN $dna %" + (if (dna < 50) " (mín. 50 %)" else "") + " · ${sp.size.incubationSeconds.toInt()} s de incubación" + if (geneCount > 0) " · −5 % viabilidad/gen" else "", color = Pal.text2, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 2, lineHeight = 12.sp, overflow = TextOverflow.Ellipsis)
             Label("RECINTO · ${encl.size}")
             if (encl.isEmpty()) Text("Valla un rectángulo con Construir → Recintos.", color = Pal.red, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -229,43 +224,47 @@ fun ExpeditionScreen(vm: GameViewModel, w: World) {
     vm.frame
     val s = w.s
     OverlayFrame("Expediciones", onClose = { vm.overlay = null }, w = w, vm = vm) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatTile("${w.maxTeams() - s.expeditions.size}/${w.maxTeams()}", "equipos libres", Modifier.weight(1f), if (s.expeditions.size < w.maxTeams()) Pal.text else Pal.goldDark)
-            StatTile("${s.sitesUnlocked.size}/${GameData.sites.size}", "yacimientos", Modifier.weight(1f))
-            StatTile("${s.dna.count { it.value > 0 }}", "con ADN", Modifier.weight(1f))
-            StatTile("${s.dna.count { it.value >= 50 }}", "incubables", Modifier.weight(1f), if (s.dna.any { it.value >= 50 }) Pal.ok else Pal.text)
-            CocCard(Modifier.weight(2f).height(54.dp), padding = 6) {
-                if (!w.hasBuilding("expedition_hq")) { Text("⚠ Sin Centro de Expediciones", color = Pal.red, fontWeight = FontWeight.Black, fontSize = 11.sp, maxLines = 1); Text("Construir → Centros", color = Pal.text3, fontSize = 10.sp) }
-                else { Text("Cada fósil suma ADN a su especie", color = Pal.text, fontWeight = FontWeight.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("con 50 % ya se puede incubar", color = Pal.text3, fontSize = 10.sp, maxLines = 1) }
+      // Desplazamiento vertical de respaldo: con escalas de fuente grandes el contenido no cabe en el panel fijo.
+      Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatTile("${w.maxTeams() - s.expeditions.size}/${w.maxTeams()}", "equipos libres", Modifier.weight(1f).fillMaxHeight(), if (s.expeditions.size < w.maxTeams()) Pal.text else Pal.goldDark)
+            StatTile("${s.sitesUnlocked.size}/${GameData.sites.size}", "yacimientos", Modifier.weight(1f).fillMaxHeight())
+            StatTile("${s.dna.count { it.value > 0 }}", "con ADN", Modifier.weight(1f).fillMaxHeight())
+            StatTile("${s.dna.count { it.value >= 50 }}", "incubables", Modifier.weight(1f).fillMaxHeight(), if (s.dna.any { it.value >= 50 }) Pal.ok else Pal.text)
+            CocCard(Modifier.weight(2f).fillMaxHeight(), padding = 6) {
+                if (!w.hasBuilding("expedition_hq")) { Text("⚠ Sin Centro de Expediciones", color = Pal.red, fontWeight = FontWeight.Black, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1); Text("Construir → Centros", color = Pal.text3, fontSize = 10.sp, lineHeight = 12.sp) }
+                else { Text("Cada fósil suma ADN a su especie", color = Pal.text, fontWeight = FontWeight.Black, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("con 50 % ya se puede incubar", color = Pal.text3, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1) }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(6.dp))
+        // Las tarjetas toman la altura de la más alta (la de más especies) en vez de una fija: así el botón nunca se recorta.
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (site in GameData.sites) {
                 val unlocked = w.siteUnlocked(site)
                 val can = w.canExpedition(site.id)
                 val active = s.expeditions.firstOrNull { it.site == site.id }
                 val col = siteColors[site.id] ?: Pal.gold
-                CocCard(Modifier.width(232.dp).height(166.dp), dim = !unlocked, padding = 0) {
-                    Row(Modifier.fillMaxWidth().height(30.dp).background(if (unlocked) col else Pal.grey).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(site.name, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 1, style = shadowStyle)
+                CocCard(Modifier.width(232.dp).fillMaxHeight(), dim = !unlocked, padding = 0) {
+                    Row(Modifier.fillMaxWidth().height(28.dp).background(if (unlocked) col else Pal.grey).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(site.name, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, style = shadowStyle)
                         Spacer(Modifier.weight(1f))
-                        Text("${site.seconds.toInt()} s · ${site.fossils} fósiles", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, style = shadowStyle)
+                        Text("${site.seconds.toInt()} s · ${site.fossils} fósiles", color = Color.White, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, style = shadowStyle)
                     }
-                    Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 5.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             for (spId in site.species) {
                                 val sp = GameData.species(spId); val dna = s.dna[spId] ?: 0
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(if (unlocked) Color(sp.colorBody) else Pal.grey)); Spacer(Modifier.width(5.dp))
-                                    Text(sp.name, color = if (unlocked) Pal.text else Pal.text3, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
-                                    if (dna > 0) Text("$dna %", color = if (dna >= 50) Pal.ok else Pal.text3, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                    Text(sp.name, color = if (unlocked) Pal.text else Pal.text3, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+                                    if (dna > 0) Text("$dna %", color = if (dna >= 50) Pal.ok else Pal.text3, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Black)
                                 }
                             }
                         }
                         when {
                             active != null -> Column {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("EN CAMPO", color = Pal.text3, fontSize = 9.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold); Text("vuelve en ${active.remaining.toInt()} s", color = Pal.text3, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("EN CAMPO", color = Pal.text3, fontSize = 9.sp, lineHeight = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold); Text("vuelve en ${active.remaining.toInt()} s", color = Pal.text3, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold) }
+                                Spacer(Modifier.height(3.dp))
                                 MiniBar((1f - active.remaining / site.seconds) * 100f, col, Modifier.fillMaxWidth())
                             }
                             !unlocked -> Text("🔒 ${unlockText(site.unlock)}", color = Pal.text3, fontSize = 10.sp, maxLines = 2, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
@@ -278,18 +277,19 @@ fun ExpeditionScreen(vm: GameViewModel, w: World) {
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Label("FÓSILES ")
-            if (s.fossilLog.isEmpty()) Text("sin resultados todavía", color = Pal.text3, fontSize = 11.sp)
+            if (s.fossilLog.isEmpty()) Text("sin resultados todavía", color = Pal.text3, fontSize = 11.sp, lineHeight = 14.sp)
             for (f in s.fossilLog.take(12)) {
                 val sp = GameData.species(f.species)
                 val qColor = when (f.quality) { "Raro" -> Pal.goldDark; "Alta" -> Pal.ok; "Media" -> Pal.blueDark; else -> Pal.text3 }
                 Row(Modifier.clip(RoundedCornerShape(6.dp)).background(Pal.card).border(1.dp, Pal.frameLight.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(Color(sp.colorBody))); Spacer(Modifier.width(5.dp))
-                    Text(sp.name, color = Pal.text, fontSize = 11.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(5.dp))
-                    Text(f.quality, color = qColor, fontSize = 10.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(5.dp))
-                    Text(if (f.sold > 0) "vendido ${f.sold} $" else "+${f.dna} %", color = Pal.text2, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(sp.name, color = Pal.text, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(5.dp))
+                    Text(f.quality, color = qColor, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(5.dp))
+                    Text(if (f.sold > 0) "vendido ${f.sold} $" else "+${f.dna} %", color = Pal.text2, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
+      }
     }
 }
 
