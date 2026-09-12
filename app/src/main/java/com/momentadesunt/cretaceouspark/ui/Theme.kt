@@ -143,8 +143,8 @@ fun CocCard(modifier: Modifier = Modifier, selected: Boolean = false, dim: Boole
 
 /** Pastilla de coste: oro con icono de moneda. */
 @Composable
-fun CostBadge(text: String, modifier: Modifier = Modifier, color: Color = Pal.gold, icon: String = "💰") {
-    Row(modifier.clip(RoundedCornerShape(6.dp)).background(color).padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+fun CostBadge(text: String, modifier: Modifier = Modifier, color: Color = Pal.gold, icon: String = "💰", onClick: (() -> Unit)? = null) {
+    Row(modifier.clip(RoundedCornerShape(6.dp)).background(color).let { if (onClick != null) it.clickable(onClick = onClick) else it }.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (icon.isNotEmpty()) { Text(icon, fontSize = 10.sp); Spacer(Modifier.width(3.dp)) }
         Text(text, color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, style = shadowStyle, maxLines = 1)
     }

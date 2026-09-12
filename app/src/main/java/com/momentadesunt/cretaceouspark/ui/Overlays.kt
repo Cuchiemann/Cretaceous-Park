@@ -34,15 +34,20 @@ fun LabScreen(vm: GameViewModel, w: World) {
     val s = w.s
     val st = rememberIncubState()
     val chosen = st.chosen
-    OverlayFrame(if (chosen == null) "ADN e incubación" else "← " + (if ((s.dna[chosen] ?: 0) > 0 || s.cloned.contains(chosen)) GameData.species(chosen).name else "Especie desconocida"),
-        onClose = { if (st.chosen != null) st.chosen = null else vm.overlay = null }, w = w, vm = vm,
-        onTitleClick = if (chosen != null) ({ st.chosen = null }) else null) {
-        if (chosen == null) {
+    val title = when {
+        st.showIncubating -> "← Incubando ${s.incubations.size}/${w.maxIncubations()}"
+        chosen == null -> "ADN e incubación"
+        else -> "← " + (if ((s.dna[chosen] ?: 0) > 0 || s.cloned.contains(chosen)) GameData.species(chosen).name else "Especie desconocida")
+    }
+    val back: (() -> Unit)? = when { st.showIncubating -> ({ st.showIncubating = false }); chosen != null -> ({ st.chosen = null }); else -> null }
+    OverlayFrame(title, onClose = { if (back != null) back() else vm.overlay = null }, w = w, vm = vm, onTitleClick = back) {
+        if (st.showIncubating) IncubatingList(vm, w, st)
+        else if (chosen == null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("ESPECIES · ${s.dna.count { it.value > 0 }} descubiertas de ${GameData.species.size} · toca una para ver su ficha e incubar")
                 Spacer(Modifier.weight(1f))
                 if (!w.hasBuilding("lab")) CocButton("Sin Laboratorio", {}, color = Pal.red, dark = Pal.redDark, small = true, icon = "⚠", sub = "Construir → Centros")
-                CostBadge("Incubando ${s.incubations.size}/${w.maxIncubations()}", color = if (s.incubations.isEmpty()) Pal.frameLight else Pal.purple, icon = "🧬")
+                CostBadge("Incubando ${s.incubations.size}/${w.maxIncubations()} ▸", color = if (s.incubations.isEmpty()) Pal.frameLight else Pal.purple, icon = "🧬", onClick = { st.showIncubating = true })
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -72,6 +77,59 @@ fun LabScreen(vm: GameViewModel, w: World) {
                 }
             }
         } else SpeciesSheet(vm, w, st, GameData.species(chosen))
+    }
+}
+
+/** Incubadoras en curso: una tarjeta por huevo con especie, recinto, genes, viabilidad y tiempo restante; huecos libres como tarjetas vacías. */
+@Composable
+private fun IncubatingList(vm: GameViewModel, w: World, st: IncubState) {
+    vm.frame
+    val s = w.s
+    val max = w.maxIncubations()
+    Label("INCUBADORAS · ${s.incubations.size} de $max en uso" + if (!w.hasBuilding("lab")) " · ⚠ sin Laboratorio" else "")
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (inc in s.incubations) {
+            val sp = GameData.species(inc.species)
+            val total = sp.size.incubationSeconds
+            val left = inc.remaining.coerceAtLeast(0f).toInt()
+            val region = w.grid.regions[inc.region]
+            val genes = listOfNotNull(if (inc.genes and 1 != 0) "piel" else null, if (inc.genes and 2 != 0) "resistente" else null, if (inc.genes and 4 != 0) "dócil" else null, if (inc.genes and 8 != 0) "vistoso" else null)
+            CocCard(Modifier.width(210.dp).fillMaxHeight(), padding = 0) {
+                Row(Modifier.fillMaxWidth().height(28.dp).background(Pal.purple).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(Color(sp.colorBody)).border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(3.dp))); Spacer(Modifier.width(6.dp))
+                    Text(sp.name, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = shadowStyle, modifier = Modifier.weight(1f))
+                    Text("🥚", fontSize = 12.sp, lineHeight = 14.sp)
+                }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Recinto: " + (region?.name ?: "⚠ ya no existe"), color = if (region != null) Pal.text else Pal.red, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Genes: " + (if (genes.isEmpty()) "ninguno" else genes.joinToString(", ")), color = Pal.text2, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val v = w.viability(inc.species, Integer.bitCount(inc.genes))
+                    Text("Viabilidad $v %", color = if (v >= 70) Pal.ok else Pal.goldDark, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(2.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("QUEDAN", color = Pal.text3, fontSize = 9.sp, lineHeight = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                        Text(String.format("%d:%02d", left / 60, left % 60), color = Pal.text, fontSize = 13.sp, lineHeight = 15.sp, fontWeight = FontWeight.Black)
+                    }
+                    MiniBar((1f - inc.remaining / total) * 100f, Pal.purple, Modifier.fillMaxWidth())
+                }
+            }
+        }
+        for (i in s.incubations.size until max) {
+            CocCard(Modifier.width(210.dp).fillMaxHeight(), dim = true, padding = 0) {
+                Row(Modifier.fillMaxWidth().height(28.dp).background(Pal.grey).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Incubadora libre", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, style = shadowStyle)
+                }
+                Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Text("Elige una especie con ADN ≥ 50 % y un recinto cerrado.", color = Pal.text3, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                    CocButton("Elegir especie", { st.showIncubating = false }, Modifier.fillMaxWidth(), small = true, icon = "🧬", color = Pal.blue, dark = Pal.blueDark)
+                }
+            }
+        }
+    }
+    if (s.incubations.isEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Text("No hay ningún huevo incubándose. Al incubar, aquí verás el tiempo que le queda a cada uno.", color = Pal.text2, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 

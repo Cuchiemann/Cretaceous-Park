@@ -30,6 +30,7 @@ class IncubState {
     var chosen by mutableStateOf<String?>(null)
     var region by mutableIntStateOf(-1)
     var genes by mutableIntStateOf(0)   // bit 1 piel, 2 resistencia, 4 dócil, 8 vistoso
+    var showIncubating by mutableStateOf(false)   // vista de incubadoras en curso (al pulsar "Incubando n/m")
 }
 
 @Composable
